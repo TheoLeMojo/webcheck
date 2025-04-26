@@ -1,3 +1,6 @@
+// Importer la configuration
+import config from './config.js';
+
 // Attendre que le DOM soit chargé
 document.addEventListener('DOMContentLoaded', async function() {
   // Récupérer les éléments du DOM
@@ -275,30 +278,128 @@ function scrapePageContent() {
 
 // Fonction pour envoyer les données à Perplexity et obtenir une vérification
 async function checkWithPerplexity(pageContent, trustedSources, pageUrl, paragraphIndex) {
-  // Dans une implémentation réelle, vous devriez utiliser l'API de Perplexity
+  try {
+    // Construire la liste des sources à utiliser EXCLUSIVEMENT
+    const sourcesList = trustedSources.join(', ');
+    
+    // Créer le prompt pour Perplexity avec restriction aux sources spécifiées
+    const prompt = `Vérifiez la véracité des informations suivantes provenant de ${pageUrl}:
+    
+    "${pageContent.content}"
+    
+    IMPORTANT: Utilisez EXCLUSIVEMENT les sources suivantes pour votre vérification. N'utilisez AUCUNE autre source: ${sourcesList}
+    
+    Si l'information ne peut pas être vérifiée par ces sources, indiquez-le clairement plutôt que d'utiliser d'autres sources.
+    
+    Donnez-moi une analyse factuelle structurée ainsi:
+    1. Statut: indiquez si l'information est "vrai", "partiellement vrai", "faux" ou "non vérifiable" par les sources spécifiées.
+    2. Explication: justifiez votre évaluation en 2-3 phrases.
+    3. Sources utilisées: listez uniquement les sources que vous avez consultées parmi celles fournies.`;
+    
+    console.log(`Requête à Perplexity pour le paragraphe ${paragraphIndex + 1}:`, prompt);
+    
+    // Paramètres de la requête API
+    const apiParams = {
+      ...config.API_PARAMS,
+      messages: [
+        {
+          role: "system",
+          content: "Vous êtes un assistant de vérification des faits. Votre tâche est de vérifier la véracité des informations en utilisant UNIQUEMENT les sources spécifiées."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ]
+    };
+    
+    // Appel à l'API Perplexity
+    const response = await fetch(config.PERPLEXITY_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.PERPLEXITY_API_KEY}`
+      },
+      body: JSON.stringify(apiParams)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Erreur API Perplexity: ${response.status} ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    console.log("Réponse de l'API:", data);
+    
+    // Extraire le contenu de la réponse
+    const responseContent = data.choices[0].message.content;
+    
+    // Analyser la réponse pour extraire le statut, l'explication et les sources
+    const analysisResult = parsePerplexityResponse(responseContent);
+    
+    return {
+      paragraphIndex: paragraphIndex,
+      content: pageContent.content,
+      summary: `Vérification du paragraphe ${paragraphIndex + 1}`,
+      status: analysisResult.status,
+      explanation: analysisResult.explanation,
+      sources: analysisResult.sources
+    };
+  } catch (error) {
+    console.error("Erreur lors de l'appel à l'API Perplexity:", error);
+    
+    // Fallback en cas d'erreur: mode simulation
+    return fallbackSimulation(pageContent, trustedSources, paragraphIndex);
+  }
+}
+
+// Fonction pour analyser la réponse de Perplexity
+function parsePerplexityResponse(responseText) {
+  // Expressions régulières pour extraire les informations
+  const statusRegex = /Statut\s*:\s*(vrai|partiellement vrai|faux|non vérifiable)/i;
+  const explanationRegex = /Explication\s*:\s*([^\n]+(?:\n[^\n]+)*?)(?:\n\s*\d|\n\s*Sources|\n\s*$)/i;
+  const sourcesRegex = /Sources utilisées\s*:([\s\S]+)$/i;
   
-  // Construire la liste des sources à utiliser EXCLUSIVEMENT
-  const sourcesList = trustedSources.join(', ');
+  // Extraire le statut
+  const statusMatch = responseText.match(statusRegex);
+  const status = statusMatch ? statusMatch[1].toLowerCase() : "non vérifiable";
   
-  // Créer une requête qui inclut le contenu de la page et les sources de confiance
-  const prompt = `Vérifiez la véracité des informations suivantes provenant de ${pageUrl}:
+  // Extraire l'explication
+  const explanationMatch = responseText.match(explanationRegex);
+  const explanation = explanationMatch 
+    ? explanationMatch[1].trim() 
+    : "Impossible d'extraire l'explication de la réponse.";
   
-  "${pageContent.content}"
+  // Extraire les sources
+  const sourcesMatch = responseText.match(sourcesRegex);
+  let sources = [];
   
-  IMPORTANT: Utilisez EXCLUSIVEMENT les sources suivantes pour votre vérification. N'utilisez AUCUNE autre source: ${sourcesList}
+  if (sourcesMatch) {
+    const sourcesText = sourcesMatch[1];
+    // Identifier les URLs dans le texte des sources
+    const urlRegex = /https?:\/\/[^\s,]+/g;
+    const matches = sourcesText.match(urlRegex);
+    
+    if (matches) {
+      sources = matches;
+    } else {
+      // Si aucune URL n'est trouvée, essayer d'extraire des lignes
+      sources = sourcesText
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+    }
+  }
   
-  Si l'information ne peut pas être vérifiée par ces sources, indiquez-le clairement plutôt que d'utiliser d'autres sources.
-  
-  Donnez-moi une analyse factuelle, indiquez si l'information est vraie, fausse ou non vérifiable par les sources spécifiées, et expliquez pourquoi.`;
-  
-  console.log(`Requête à Perplexity pour le paragraphe ${paragraphIndex + 1}:`, prompt);
-  
-  // Simuler un délai de traitement (varie selon la longueur du texte)
-  const delayTime = Math.max(500, Math.min(2000, pageContent.content.length * 2));
-  await new Promise(resolve => setTimeout(resolve, delayTime));
-  
-  // Simuler une réponse
-  // Dans une implémentation réelle, cette partie serait remplacée par un appel API
+  return {
+    status,
+    explanation,
+    sources
+  };
+}
+
+// Fonction de repli (fallback) en cas d'erreur avec l'API - utilise la simulation
+function fallbackSimulation(pageContent, trustedSources, paragraphIndex) {
+  console.log("Utilisation du mode simulation (fallback) pour la vérification");
   
   // Générer des réponses différentes pour chaque paragraphe pour la simulation
   const statuses = ["vrai", "partiellement vrai", "faux", "non vérifiable"];

@@ -12,6 +12,10 @@
     "storage"
   ],
   "host_permissions": [
-    "https://www.perplexity.ai/*"
-  ]
+    "https://www.perplexity.ai/*",
+    "https://api.perplexity.ai/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
 }

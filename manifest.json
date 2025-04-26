@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "WebCheck Verifier",
+  "description": "Vérifie la véracité des informations de la page web avec Perplexity",
+  "version": "1.0",
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.perplexity.ai/*"
+  ]
+}

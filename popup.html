@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebCheck Verifier</title>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>WebCheck Verifier</h1>
+    <div class="controls">
+      <button id="checkPage">Vérifier cette page</button>
+    </div>
+    
+    <div class="sources-section">
+      <div class="sources-header">
+        <h2>Sources vérifiées par défaut</h2>
+        <div class="toggle-container">
+          <span class="toggle-label">Afficher</span>
+          <input type="checkbox" id="toggleDefaultSources" class="toggle-checkbox">
+          <label for="toggleDefaultSources" class="toggle-label"></label>
+        </div>
+      </div>
+      <div id="defaultSourcesList" class="sources-list" style="display: none;">
+        <!-- Liste des sources par défaut générée par JS -->
+      </div>
+    </div>
+    
+    <div class="sources-section">
+      <div class="sources-header">
+        <h2>Vos sources vérifiées</h2>
+        <div class="toggle-container">
+          <span class="toggle-label">Afficher</span>
+          <input type="checkbox" id="toggleUserSources" class="toggle-checkbox">
+          <label for="toggleUserSources" class="toggle-label"></label>
+        </div>
+      </div>
+      <div id="userSourcesContainer" class="sources-container" style="display: none;">
+        <div id="userSourcesList" class="sources-list">
+          <!-- Liste des sources de l'utilisateur générée par JS -->
+        </div>
+        <div class="add-source-container">
+          <input type="text" id="newSourceInput" placeholder="Entrez l'URL d'une source fiable">
+          <button id="addSourceButton">Ajouter</button>
+        </div>
+      </div>
+    </div>
+    
+    <div id="status" class="status"></div>
+    <div id="results" class="results">
+      <div class="loader" id="loader" style="display: none;"></div>
+      <div id="verificationResult"></div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html> 

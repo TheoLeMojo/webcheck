@@ -214,4 +214,129 @@ button:disabled {
 #addSourceButton {
   padding: 6px 10px;
   font-size: 12px;
+}
+
+/* Nouveaux styles pour la vérification par paragraphe */
+.verification-header {
+  margin-bottom: 15px;
+  text-align: center;
+}
+
+.verification-header h3 {
+  margin: 0 0 5px 0;
+  font-size: 16px;
+  color: #202124;
+}
+
+.verification-info {
+  font-size: 12px;
+  color: #5f6368;
+  margin: 0;
+}
+
+.paragraphs-container {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.paragraph-result {
+  background-color: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  padding: 12px;
+  position: relative;
+}
+
+.paragraph-result.status-true {
+  border-left: 4px solid #34a853;
+}
+
+.paragraph-result.status-partial {
+  border-left: 4px solid #fbbc05;
+}
+
+.paragraph-result.status-false {
+  border-left: 4px solid #ea4335;
+}
+
+.paragraph-result.status-unverified {
+  border-left: 4px solid #9aa0a6;
+}
+
+.paragraph-content {
+  font-size: 14px;
+  line-height: 1.4;
+  margin-bottom: 10px;
+  color: #202124;
+  font-style: italic;
+}
+
+.verification-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.verification-badge.status-true {
+  background-color: rgba(52, 168, 83, 0.1);
+  color: #34a853;
+}
+
+.verification-badge.status-partial {
+  background-color: rgba(251, 188, 5, 0.1);
+  color: #b06000;
+}
+
+.verification-badge.status-false {
+  background-color: rgba(234, 67, 53, 0.1);
+  color: #ea4335;
+}
+
+.verification-badge.status-unverified {
+  background-color: rgba(154, 160, 166, 0.1);
+  color: #5f6368;
+}
+
+.verification-explanation {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #444;
+  margin-bottom: 10px;
+}
+
+.verification-sources {
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-top: 10px;
+}
+
+.verification-sources h4 {
+  font-size: 12px;
+  margin: 0 0 5px 0;
+  color: #5f6368;
+}
+
+.verification-sources ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.verification-sources li {
+  font-size: 11px;
+  line-height: 1.3;
+  margin-bottom: 3px;
+}
+
+.verification-sources a {
+  color: #1a73e8;
+  text-decoration: none;
+}
+
+.verification-sources a:hover {
+  text-decoration: underline;
 } 

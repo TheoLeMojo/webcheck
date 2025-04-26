@@ -167,14 +167,44 @@ document.addEventListener('DOMContentLoaded', async function() {
       // Combiner les sources par ordre de priorité
       const allSources = [...defaultSources, ...userSources];
       
+      if (allSources.length === 0) {
+        statusDiv.textContent = 'Aucune source vérifiée disponible. Ajoutez des sources pour continuer.';
+        checkButton.disabled = false;
+        loader.style.display = 'none';
+        return;
+      }
+      
       // Afficher le statut
-      statusDiv.textContent = 'Envoi à Perplexity pour vérification...';
+      statusDiv.textContent = 'Analyse des paragraphes et vérification...';
       
-      // Envoyer à l'API de Perplexity
-      const verificationResult = await checkWithPerplexity(pageContent, allSources, tab.url);
+      // Vérifier chaque paragraphe individuellement
+      const verificationResults = await Promise.all(
+        pageContent.paragraphs.map(async (paragraph, index) => {
+          statusDiv.textContent = `Vérification du paragraphe ${index + 1}/${pageContent.paragraphs.length}...`;
+          if (paragraph.trim().length < 50) return null; // Ignorer les paragraphes trop courts
+          
+          return await checkWithPerplexity(
+            { 
+              title: pageContent.title,
+              content: paragraph,
+              url: pageContent.url 
+            }, 
+            allSources, 
+            tab.url,
+            index
+          );
+        })
+      );
       
-      // Afficher le résultat
-      resultDiv.innerHTML = formatVerificationResult(verificationResult);
+      // Filtrer les résultats null (paragraphes ignorés)
+      const validResults = verificationResults.filter(result => result !== null);
+      
+      // Afficher les résultats
+      if (validResults.length > 0) {
+        resultDiv.innerHTML = formatVerificationResults(validResults, pageContent);
+      } else {
+        resultDiv.innerHTML = "<p>Aucun contenu substantiel n'a pu être vérifié sur cette page.</p>";
+      }
       
       // Mettre à jour le statut
       statusDiv.textContent = 'Vérification terminée';
@@ -191,164 +221,169 @@ document.addEventListener('DOMContentLoaded', async function() {
 
 // Fonction pour extraire le contenu de la page
 function scrapePageContent() {
-  // Récupérer le contenu textuel principal de la page
   // Cette fonction est exécutée dans le contexte de la page web
-  const getVisibleText = (node) => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      return node.textContent.trim();
-    }
-    
-    if (node.nodeType !== Node.ELEMENT_NODE) {
-      return '';
-    }
-    
-    const style = window.getComputedStyle(node);
-    if (style.display === 'none' || style.visibility === 'hidden') {
-      return '';
-    }
-    
-    let text = '';
-    for (let child of node.childNodes) {
-      text += ' ' + getVisibleText(child);
-    }
-    
-    return text.trim();
-  };
-
+  
   // Extraire le titre de la page
   const title = document.title;
+  const url = window.location.href;
   
-  // Récupérer le contenu principal
-  let mainContent = '';
-  
-  // Essayer d'identifier le contenu principal (article, section principale, etc.)
+  // Récupérer le contenu principal 
   const mainElements = document.querySelectorAll('article, main, .content, .main, #content, #main');
+  let mainElement = null;
   
   if (mainElements.length > 0) {
     // Utiliser le premier élément principal trouvé
-    mainContent = getVisibleText(mainElements[0]);
+    mainElement = mainElements[0];
   } else {
     // Sinon, utiliser le body entier
-    mainContent = getVisibleText(document.body);
+    mainElement = document.body;
   }
   
-  // Limiter la taille du contenu pour éviter des requêtes trop volumineuses
-  const maxLength = 5000;
-  if (mainContent.length > maxLength) {
-    mainContent = mainContent.substring(0, maxLength) + '...';
+  // Trouver tous les paragraphes dans l'élément principal
+  const paragraphElements = mainElement.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li');
+  const paragraphs = [];
+  
+  // Extraire le texte de chaque paragraphe
+  paragraphElements.forEach(element => {
+    const text = element.textContent.trim();
+    if (text.length > 0) {
+      paragraphs.push(text);
+    }
+  });
+  
+  // Si aucun paragraphe n'a été trouvé via les balises p, essayer de diviser le texte
+  if (paragraphs.length === 0) {
+    const fullText = mainElement.textContent.trim();
+    const sentences = fullText.split(/(?<=[.!?])\s+/);
+    
+    // Regrouper les phrases en paragraphes (4-5 phrases par paragraphe)
+    for (let i = 0; i < sentences.length; i += 4) {
+      const paragraph = sentences.slice(i, i + 4).join(' ');
+      if (paragraph.trim().length > 0) {
+        paragraphs.push(paragraph);
+      }
+    }
   }
   
-  // Combiner les informations
+  // Retourner les informations extraites
   return {
     title: title,
-    content: mainContent,
-    url: window.location.href
+    paragraphs: paragraphs,
+    url: url
   };
 }
 
 // Fonction pour envoyer les données à Perplexity et obtenir une vérification
-async function checkWithPerplexity(pageContent, trustedSources, pageUrl) {
+async function checkWithPerplexity(pageContent, trustedSources, pageUrl, paragraphIndex) {
   // Dans une implémentation réelle, vous devriez utiliser l'API de Perplexity
-  // Mais comme ce n'est pas publiquement documenté, voici comment on pourrait procéder:
   
-  // 1. Option: Utiliser leur API si vous avez un accès
-  // 2. Option: Créer un backend qui interagit avec Perplexity via des méthodes alternatives
-  
-  // Pour cette démonstration, nous allons simuler une réponse
-  
-  // Construire la liste des sources à utiliser en priorité
-  const sourcesList = trustedSources.length > 0 
-    ? 'Sources de confiance à utiliser en priorité: ' + trustedSources.join(', ')
-    : 'Utilisez des sources fiables pour la vérification.';
+  // Construire la liste des sources à utiliser EXCLUSIVEMENT
+  const sourcesList = trustedSources.join(', ');
   
   // Créer une requête qui inclut le contenu de la page et les sources de confiance
   const prompt = `Vérifiez la véracité des informations suivantes provenant de ${pageUrl}:
   
-  "${pageContent.title}"
+  "${pageContent.content}"
   
-  Contenu: "${pageContent.content.substring(0, 1000)}..."
+  IMPORTANT: Utilisez EXCLUSIVEMENT les sources suivantes pour votre vérification. N'utilisez AUCUNE autre source: ${sourcesList}
   
-  ${sourcesList}
+  Si l'information ne peut pas être vérifiée par ces sources, indiquez-le clairement plutôt que d'utiliser d'autres sources.
   
-  Donnez-moi une analyse factuelle, indiquez quelles informations sont vraies, fausses ou non vérifiables, et expliquez pourquoi.`;
+  Donnez-moi une analyse factuelle, indiquez si l'information est vraie, fausse ou non vérifiable par les sources spécifiées, et expliquez pourquoi.`;
   
-  console.log("Requête à Perplexity:", prompt);
+  console.log(`Requête à Perplexity pour le paragraphe ${paragraphIndex + 1}:`, prompt);
   
-  // Simuler un délai de traitement
-  await new Promise(resolve => setTimeout(resolve, 2000));
+  // Simuler un délai de traitement (varie selon la longueur du texte)
+  const delayTime = Math.max(500, Math.min(2000, pageContent.content.length * 2));
+  await new Promise(resolve => setTimeout(resolve, delayTime));
   
   // Simuler une réponse
   // Dans une implémentation réelle, cette partie serait remplacée par un appel API
+  
+  // Générer des réponses différentes pour chaque paragraphe pour la simulation
+  const statuses = ["vrai", "partiellement vrai", "faux", "non vérifiable"];
+  const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
+  
+  // Pour la démonstration, utiliser les 2-3 premières sources de la liste
+  const usedSources = trustedSources.slice(0, Math.min(2 + Math.floor(Math.random() * 2), trustedSources.length));
+  
   return {
-    summary: "Cette analyse est simulée car l'API Perplexity n'est pas publiquement accessible. Dans une implémentation réelle, vous devriez utiliser l'API officielle ou un backend personnalisé.",
-    verifiedClaims: [
-      {
-        claim: "Exemple de déclaration extraite de la page",
-        status: "vrai",
-        explanation: "Cette information a été confirmée par des sources fiables."
-      },
-      {
-        claim: "Autre exemple de déclaration",
-        status: "partiellement vrai",
-        explanation: "Cette information est partiellement correcte, mais contient des imprécisions."
-      }
-    ],
-    sources: [
-      "https://exemple-source-fiable.com/article1",
-      "https://autre-source.org/etude"
-    ]
+    paragraphIndex: paragraphIndex,
+    content: pageContent.content,
+    summary: `Vérification du paragraphe ${paragraphIndex + 1} (simulation): Cette analyse est limitée aux sources spécifiées.`,
+    status: randomStatus,
+    explanation: getExplanationForStatus(randomStatus, pageContent.content),
+    sources: usedSources
   };
 }
 
-// Fonction pour formater le résultat de la vérification
-function formatVerificationResult(result) {
-  let html = '<div class="verification-summary">';
-  html += `<p>${result.summary}</p>`;
-  html += '</div>';
+// Fonction pour générer une explication selon le statut (pour la simulation)
+function getExplanationForStatus(status, content) {
+  switch(status) {
+    case "vrai":
+      return `Cette information a été confirmée par les sources vérifiées. Les faits mentionnés correspondent aux données publiées dans nos sources.`;
+    case "partiellement vrai":
+      return `Cette information contient des éléments exacts mais aussi des imprécisions. Les sources vérifiées confirment certains aspects mais pas la totalité.`;
+    case "faux":
+      return `Cette information est contredite par les sources vérifiées. Les faits présentés ne correspondent pas aux données disponibles dans nos sources.`;
+    case "non vérifiable":
+      return `Impossible de vérifier cette information avec les sources spécifiées. Ce sujet n'est pas traité dans les sources de confiance fournies.`;
+    default:
+      return `Statut de vérification inconnu.`;
+  }
+}
+
+// Fonction pour formater tous les résultats de vérification
+function formatVerificationResults(results, pageContent) {
+  let html = `<div class="verification-header">
+    <h3>Vérification de "${pageContent.title}"</h3>
+    <p class="verification-info">Basée exclusivement sur les sources vérifiées</p>
+  </div>`;
   
-  html += '<div class="verified-claims">';
-  html += '<h3>Déclarations vérifiées</h3>';
+  html += '<div class="paragraphs-container">';
   
-  result.verifiedClaims.forEach(claim => {
+  results.forEach(result => {
     let statusClass = '';
-    switch(claim.status.toLowerCase()) {
+    switch(result.status.toLowerCase()) {
       case 'vrai':
       case 'true':
         statusClass = 'status-true';
-        break;
-      case 'faux':
-      case 'false':
-        statusClass = 'status-false';
         break;
       case 'partiellement vrai':
       case 'partially true':
         statusClass = 'status-partial';
         break;
+      case 'faux':
+      case 'false':
+        statusClass = 'status-false';
+        break;
+      case 'non vérifiable':
       default:
         statusClass = 'status-unverified';
     }
     
-    html += `<div class="claim ${statusClass}">`;
-    html += `<p class="claim-text">"${claim.claim}"</p>`;
-    html += `<p class="claim-status">${claim.status}</p>`;
-    html += `<p class="claim-explanation">${claim.explanation}</p>`;
+    html += `<div class="paragraph-result ${statusClass}">`;
+    html += `<div class="paragraph-content">"${result.content.substring(0, 150)}${result.content.length > 150 ? '...' : ''}"</div>`;
+    html += `<div class="verification-badge ${statusClass}">${result.status}</div>`;
+    html += `<div class="verification-explanation">${result.explanation}</div>`;
+    
+    if (result.sources && result.sources.length > 0) {
+      html += '<div class="verification-sources">';
+      html += '<h4>Sources consultées</h4>';
+      html += '<ul>';
+      
+      result.sources.forEach(source => {
+        html += `<li><a href="${source}" target="_blank">${source}</a></li>`;
+      });
+      
+      html += '</ul>';
+      html += '</div>';
+    }
+    
     html += '</div>';
   });
   
   html += '</div>';
-  
-  if (result.sources && result.sources.length > 0) {
-    html += '<div class="sources">';
-    html += '<h3>Sources utilisées</h3>';
-    html += '<ul>';
-    
-    result.sources.forEach(source => {
-      html += `<li><a href="${source}" target="_blank">${source}</a></li>`;
-    });
-    
-    html += '</ul>';
-    html += '</div>';
-  }
   
   return html;
 } 

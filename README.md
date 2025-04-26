@@ -15,10 +15,22 @@ Une extension Chrome qui vérifie la véracité des informations d'une page web 
 ## Installation
 
 1. Clonez ce dépôt ou téléchargez les fichiers
-2. Ouvrez Chrome et accédez à `chrome://extensions/`
-3. Activez le "Mode développeur" (en haut à droite)
-4. Cliquez sur "Charger l'extension non empaquetée"
-5. Sélectionnez le dossier contenant les fichiers de cette extension
+2. Configurez votre clé API Perplexity (voir section ci-dessous)
+3. Ouvrez Chrome et accédez à `chrome://extensions/`
+4. Activez le "Mode développeur" (en haut à droite)
+5. Cliquez sur "Charger l'extension non empaquetée"
+6. Sélectionnez le dossier contenant les fichiers de cette extension
+
+## Configuration de l'API Perplexity
+
+Pour utiliser cette extension, vous devez disposer d'une clé API Perplexity :
+
+1. Obtenez une clé API sur [Perplexity AI](https://www.perplexity.ai/)
+2. Copiez le fichier `config.example.js` vers `config.js`
+3. Ouvrez `config.js` et remplacez `"votre-clé-api-perplexity-ici"` par votre clé API réelle
+4. (Optionnel) Ajustez les autres paramètres selon vos besoins
+
+**Important :** Le fichier `config.js` contenant votre clé API est inclus dans `.gitignore` pour éviter qu'il ne soit partagé publiquement. Ne le committez jamais dans le dépôt.
 
 ## Utilisation
 
@@ -43,11 +55,22 @@ Vous pouvez ajouter vos propres sources vérifiées qui seront utilisées en com
 
 Une caractéristique clé de cette extension est sa capacité à restreindre Perplexity pour qu'il utilise **uniquement** les sources vérifiées spécifiées. Si une information ne peut pas être vérifiée à l'aide de ces sources, elle sera marquée comme "non vérifiable" plutôt que d'utiliser d'autres sources potentiellement non fiables.
 
+## Comment fonctionne l'API Perplexity
+
+L'extension utilise l'API Perplexity pour vérifier la véracité des informations :
+
+1. Le contenu de la page est extrait et divisé en paragraphes
+2. Chaque paragraphe est envoyé à l'API Perplexity avec une instruction stricte d'utiliser uniquement les sources vérifiées
+3. La réponse de l'API est analysée pour extraire le statut de véracité, l'explication et les sources utilisées
+4. Les résultats sont affichés dans l'interface de l'extension
+
+En cas d'erreur API ou si vous n'avez pas configuré votre clé API, l'extension basculera automatiquement vers un mode de simulation pour les démonstrations.
+
 ## Limitations
 
-- L'API officielle de Perplexity n'étant pas publiquement documentée, cette implémentation est simulée
-- Pour une utilisation réelle, vous devrez implémenter votre propre solution d'intégration avec Perplexity
 - La qualité de la vérification dépend de la pertinence des sources vérifiées que vous spécifiez
+- Les limites de l'API Perplexity s'appliquent (quotas, vitesse, etc.)
+- Pour les contenus très longs, seuls les paragraphes les plus pertinents seront vérifiés
 
 ## Permissions
 
@@ -63,11 +86,13 @@ Une caractéristique clé de cette extension est sa capacité à restreindre Per
 - `popup.html` : Interface utilisateur de l'extension
 - `popup.css` : Styles pour l'interface
 - `popup.js` : Logique de l'extension
+- `config.example.js` : Exemple de configuration de l'API (à copier vers `config.js`)
+- `config.js` : Configuration réelle avec votre clé API (non inclus dans le dépôt)
 - `trusted_sources.json` : Liste des sources vérifiées par défaut
 - `images/` : Dossier contenant les icônes
 
 ### TODO
 
-- Implémenter une véritable intégration avec l'API Perplexity lorsqu'elle sera disponible
 - Améliorer l'algorithme d'extraction des paragraphes
-- Ajouter des options de configuration supplémentaires 
+- Ajouter des options de configuration supplémentaires
+- Implémenter une fonctionnalité de cache pour réduire les appels API 

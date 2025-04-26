@@ -26,4 +26,14 @@ yarn-error.log*
 .idea/
 .vscode/
 *.swp
-*.swo 
+*.swo
+
+# Fichiers de configuration avec informations sensibles
+config.js
+
+# Dossiers et fichiers du système
+.env
+
+# Fichiers temporaires
+.tmp
+.temp 

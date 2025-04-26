@@ -180,18 +180,30 @@ document.addEventListener('DOMContentLoaded', async function() {
       // Afficher le statut
       statusDiv.textContent = 'Analyse des paragraphes et vérification...';
       
+      // Filtrer les paragraphes trop courts
+      const significantParagraphs = pageContent.paragraphs.filter(
+        paragraph => paragraph.trim().length >= 50
+      );
+      
+      // Limiter à un maximum de 5 paragraphes pour des performances raisonnables
+      const paragraphsToVerify = significantParagraphs.slice(0, 5);
+      
+      // Ajouter le titre comme contexte aux paragraphes
+      const enrichedParagraphs = paragraphsToVerify.map(paragraph => ({
+        content: paragraph,
+        title: pageContent.title,
+        url: pageContent.url
+      }));
+      
+      statusDiv.textContent = `Analyse approfondie de ${paragraphsToVerify.length} paragraphes...`;
+      
       // Vérifier chaque paragraphe individuellement
       const verificationResults = await Promise.all(
-        pageContent.paragraphs.map(async (paragraph, index) => {
-          statusDiv.textContent = `Vérification du paragraphe ${index + 1}/${pageContent.paragraphs.length}...`;
-          if (paragraph.trim().length < 50) return null; // Ignorer les paragraphes trop courts
+        enrichedParagraphs.map(async (enrichedParagraph, index) => {
+          statusDiv.textContent = `Vérification approfondie du paragraphe ${index + 1}/${paragraphsToVerify.length}...`;
           
           return await checkWithPerplexity(
-            { 
-              title: pageContent.title,
-              content: paragraph,
-              url: pageContent.url 
-            }, 
+            enrichedParagraph, 
             allSources, 
             tab.url,
             index
@@ -400,14 +412,15 @@ async function checkWithPerplexity(pageContent, trustedSources, pageUrl, paragra
     
     "${pageContent.content}"
     
-    IMPORTANT: Utilisez EXCLUSIVEMENT les sources suivantes pour votre vérification. N'utilisez AUCUNE autre source: ${sourcesList}
-    
-    Si l'information ne peut pas être vérifiée par ces sources, indiquez-le clairement plutôt que d'utiliser d'autres sources.
+    IMPORTANT: 
+    1. Analysez L'INTÉGRALITÉ du paragraphe ci-dessus, pas seulement certains mots-clés.
+    2. Utilisez EXCLUSIVEMENT les sources suivantes pour votre vérification. N'utilisez AUCUNE autre source: ${sourcesList}
+    3. Si l'information ne peut pas être vérifiée par ces sources, indiquez-le clairement plutôt que d'utiliser d'autres sources.
     
     Donnez-moi une analyse factuelle structurée ainsi:
     1. Statut: indiquez si l'information est "vrai", "partiellement vrai", "faux" ou "non vérifiable" par les sources spécifiées.
     2. Score: attribuez un score de validité de 1 à 100, où 100 représente une information parfaitement vérifiée et exacte.
-    3. Explication: justifiez votre évaluation en 2-3 phrases.
+    3. Explication: justifiez votre évaluation en expliquant quelles parties du paragraphe sont vérifiées ou non par les sources. Soyez précis.
     4. Sources utilisées: listez UNIQUEMENT les sources que vous avez consultées et qui contiennent des informations PERTINENTES par rapport au contenu analysé. Pour chaque source, fournissez l'URL COMPLÈTE et EXACTE de la page spécifique consultée (pas seulement le domaine), et indiquez un niveau d'accord (de 1 à 10) entre le contenu de la source et l'information analysée.
        Format: URL_complète_de_la_page (Niveau d'accord: X/10) - où X est un nombre entre 1 et 10.`;
     
@@ -419,7 +432,7 @@ async function checkWithPerplexity(pageContent, trustedSources, pageUrl, paragra
       messages: [
         {
           role: "system",
-          content: "Vous êtes un assistant de vérification des faits. Votre tâche est de vérifier la véracité des informations en utilisant UNIQUEMENT les sources spécifiées et de n'inclure que les sources pertinentes avec leur niveau d'accord avec le contenu. Pour chaque source, fournissez l'URL complète et exacte de la page spécifique consultée, pas seulement le domaine principal."
+          content: "Vous êtes un assistant de vérification des faits expert et minutieux. Votre tâche est d'analyser l'intégralité du contenu fourni et de vérifier sa véracité en utilisant UNIQUEMENT les sources spécifiées. Faites une analyse complète du texte, pas seulement de quelques mots-clés. Pour chaque source pertinente, fournissez l'URL complète et exacte de la page spécifique consultée, pas seulement le domaine principal."
         },
         {
           role: "user",

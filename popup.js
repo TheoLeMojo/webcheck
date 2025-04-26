@@ -228,8 +228,12 @@ document.addEventListener('DOMContentLoaded', async function() {
   function setupSourcePreviews() {
     const sourceLinks = document.querySelectorAll('.source-link');
     const previewContainer = document.getElementById('sourcePreviewContainer');
+    const popupContainer = document.querySelector('.container');
     
     if (!previewContainer) return;
+    
+    // Prévisualisation active actuelle
+    let activePreview = null;
     
     sourceLinks.forEach(link => {
       // Ajouter des écouteurs d'événements pour le survol
@@ -239,27 +243,54 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         // Positionner et afficher la prévisualisation
         previewContainer.innerHTML = previewData;
+        
+        // Rendre visible temporairement pour calculer les dimensions
         previewContainer.style.display = 'block';
+        previewContainer.style.opacity = '0';
+        previewContainer.style.pointerEvents = 'none'; // Permettre les clics à travers
         
-        // Calculer la position
+        // Obtenir les dimensions
         const linkRect = this.getBoundingClientRect();
-        const containerRect = document.querySelector('.container').getBoundingClientRect();
+        const containerRect = popupContainer.getBoundingClientRect();
+        const previewRect = previewContainer.getBoundingClientRect();
         
-        // Positionner à droite du lien si possible, sinon à gauche
-        if (linkRect.right + 320 < window.innerWidth) {
-          previewContainer.style.left = (linkRect.right - containerRect.left + 10) + 'px';
+        // Positionner toujours en dessous du lien
+        const leftPos = Math.max(10, Math.min(
+          containerRect.width - previewRect.width - 10,
+          linkRect.left - containerRect.left
+        ));
+        
+        const topPos = linkRect.bottom - containerRect.top + 10;
+        
+        // Vérifier si ça dépasse en bas et ajuster la taille si nécessaire
+        if (topPos + previewRect.height > containerRect.height - 10) {
+          const maxHeight = Math.max(50, containerRect.height - topPos - 20);
+          previewContainer.style.maxHeight = `${maxHeight}px`;
         } else {
-          previewContainer.style.left = (linkRect.left - containerRect.left - 320 - 10) + 'px';
+          previewContainer.style.maxHeight = '200px'; // Restaurer la hauteur max par défaut
         }
         
-        previewContainer.style.top = (linkRect.top - containerRect.top - 30) + 'px';
+        // Stocker une référence au lien actif
+        activePreview = this;
+        
+        // Appliquer la position et rendre visible
+        previewContainer.style.left = `${leftPos}px`;
+        previewContainer.style.top = `${topPos}px`;
+        previewContainer.style.opacity = '1';
+      });
+      
+      // Ajouter un gestionnaire de clic explicite
+      link.addEventListener('click', function(e) {
+        // Permettre au clic de se propager normalement
+        previewContainer.style.display = 'none';
       });
       
       link.addEventListener('mouseleave', function() {
         // Masquer la prévisualisation avec un délai pour permettre le survol
         setTimeout(() => {
-          if (!previewContainer.matches(':hover')) {
+          if (activePreview === this && !previewContainer.matches(':hover')) {
             previewContainer.style.display = 'none';
+            activePreview = null;
           }
         }, 300);
       });
@@ -267,7 +298,12 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Ajouter un écouteur pour masquer la prévisualisation quand on quitte le conteneur
     previewContainer.addEventListener('mouseleave', function() {
-      this.style.display = 'none';
+      setTimeout(() => {
+        if (activePreview && !activePreview.matches(':hover')) {
+          this.style.display = 'none';
+          activePreview = null;
+        }
+      }, 100);
     });
   }
 });
@@ -552,22 +588,65 @@ function fallbackSimulation(pageContent, trustedSources, paragraphIndex) {
   const selectedSources = [];
   const sourcesAgreement = {};
   
-  // Chemins spécifiques possibles pour les sources (simulation)
-  const specificPaths = {
-    'who.int': ['/news-room/fact-sheets/detail/diabetes', '/health-topics/coronavirus', '/emergencies/diseases/novel-coronavirus-2019', '/news-room/questions-and-answers/item/coronavirus-disease-covid-19', '/health-topics/immunization'],
-    'cdc.gov': ['/diabetes/basics/index.html', '/coronavirus/2019-ncov/index.html', '/flu/index.html', '/measles/index.html', '/vaccines/index.html'],
-    'nih.gov': ['/health-information/diabetes', '/health-information/coronavirus', '/health-information/cancer', '/health-information/heart-disease', '/research-training/clinical-trials'],
-    'science.org': ['/content/article/diabetes-research', '/content/article/coronavirus-updates', '/content/article/vaccine-development', '/content/article/climate-change-research', '/content/article/genomics-advances'],
-    'nature.com': ['/articles/d41586-020-00123-1', '/articles/s41591-020-0820-9', '/articles/s41586-020-2008-3', '/articles/s41586-020-2012-7', '/articles/s41576-019-0195-2'],
-    'reuters.com': ['/world/health/diabetes-global-crisis', '/world/coronavirus-pandemic', '/business/healthcare-pharmaceuticals', '/business/environment/climate-change', '/technology/science'],
-    'wikipedia.org': ['/wiki/Diabetes_mellitus', '/wiki/COVID-19_pandemic', '/wiki/Vaccine', '/wiki/Climate_change', '/wiki/Artificial_intelligence']
+  // Pages réelles pour les sources principales
+  const realPages = {
+    'who.int': [
+      '/news-room/fact-sheets/detail/diabetes',
+      '/news-room/questions-and-answers/item/coronavirus-disease-covid-19',
+      '/health-topics/coronavirus',
+      '/emergencies/diseases/novel-coronavirus-2019'
+    ],
+    'cdc.gov': [
+      '/diabetes/basics/diabetes.html',
+      '/coronavirus/2019-ncov/index.html',
+      '/flu/index.html',
+      '/vaccines/index.html'
+    ],
+    'nih.gov': [
+      '/health-information/diabetes',
+      '/health-information/coronavirus',
+      '/research-training/medical-research-initiatives/activ'
+    ],
+    'nature.com': [
+      '/articles/d41586-020-00502-w',
+      '/articles/d41586-020-01315-7',
+      '/articles/d41586-020-01221-y',
+      '/articles/s41586-020-2012-7'
+    ],
+    'wikipedia.org': [
+      '/wiki/Diabetes_mellitus',
+      '/wiki/COVID-19',
+      '/wiki/World_Health_Organization',
+      '/wiki/Centers_for_Disease_Control_and_Prevention'
+    ],
+    'cnn.com': [
+      '/health',
+      '/health/coronavirus'
+    ],
+    'bbc.com': [
+      '/news/health',
+      '/news/science_and_environment'
+    ],
+    'reuters.com': [
+      '/lifestyle/health',
+      '/business/healthcare-pharmaceuticals'
+    ]
   };
   
-  // Chemins génériques si le domaine n'a pas de chemins spécifiques
-  const genericPaths = [
-    '/about', '/news', '/research', '/publications', '/facts', '/resources', '/topics',
-    '/health-information', '/science', '/articles', '/publications/latest', '/data'
-  ];
+  // Pages par défaut pour les autres domaines
+  const defaultPages = {
+    'science.org': '/content/latest-news',
+    'scientificamerican.com': '/health',
+    'pnas.org': '/content/latest',
+    'sciencedirect.com': '/browse/journals-and-books',
+    'europa.eu': '/info/index_en',
+    'un.org': '/en/sections/general/un-websites/',
+    'wikidata.org': '/wiki/Wikidata:Main_Page',
+    'wikiversity.org': '/wiki/Wikiversity:Main_Page',
+    'wikivoyage.org': '/wiki/Main_Page',
+    'wiktionary.org': '/wiki/Wiktionary:Main_Page',
+    'wikibooks.org': '/wiki/Main_Page'
+  };
   
   // Si nous avons assez de sources, en sélectionner aléatoirement
   if (trustedSources.length > 0) {
@@ -579,18 +658,28 @@ function fallbackSimulation(pageContent, trustedSources, paragraphIndex) {
       const domainMatch = baseSource.match(/https?:\/\/(?:www\.)?([^\/]+)/i);
       const baseDomain = domainMatch ? domainMatch[1] : '';
       
-      // Construire une URL spécifique
+      // Construire une URL spécifique qui existe réellement
       let specificSource = baseSource;
+      let domainKey = '';
       
-      // Si nous avons des chemins spécifiques pour ce domaine
-      const domain = Object.keys(specificPaths).find(d => baseDomain.includes(d));
-      if (domain && specificPaths[domain]) {
-        const randomPath = specificPaths[domain][Math.floor(Math.random() * specificPaths[domain].length)];
+      // Trouver la clé de domaine correspondante
+      for (const domain in realPages) {
+        if (baseDomain.includes(domain)) {
+          domainKey = domain;
+          break;
+        }
+      }
+      
+      if (domainKey && realPages[domainKey] && realPages[domainKey].length > 0) {
+        // Utiliser une page réelle pour ce domaine
+        const randomPath = realPages[domainKey][Math.floor(Math.random() * realPages[domainKey].length)];
         specificSource = baseSource.replace(/\/$/, '') + randomPath;
+      } else if (defaultPages[baseDomain]) {
+        // Utiliser une page par défaut si disponible
+        specificSource = baseSource.replace(/\/$/, '') + defaultPages[baseDomain];
       } else {
-        // Sinon, utiliser un chemin générique
-        const randomPath = genericPaths[Math.floor(Math.random() * genericPaths.length)];
-        specificSource = baseSource.replace(/\/$/, '') + randomPath;
+        // Utiliser juste le domaine de base
+        specificSource = baseSource;
       }
       
       selectedSources.push(specificSource);
@@ -790,6 +879,32 @@ function generateSourcePreview(sourceUrl, agreementLevel, relatedContent) {
   const domain = new URL(sourceUrl).hostname;
   const path = new URL(sourceUrl).pathname;
   
+  // Dictionnaire de titres pour les chemins connus
+  const knownTitles = {
+    // WHO
+    '/news-room/fact-sheets/detail/diabetes': 'Diabète - Principaux faits | OMS',
+    '/news-room/questions-and-answers/item/coronavirus-disease-covid-19': 'Questions-réponses : Maladie à coronavirus (COVID-19)',
+    '/health-topics/coronavirus': 'Coronavirus | Organisation mondiale de la Santé',
+    '/emergencies/diseases/novel-coronavirus-2019': 'Maladie à coronavirus (COVID-19) | OMS',
+    
+    // CDC
+    '/diabetes/basics/diabetes.html': 'Qu\'est-ce que le diabète? | CDC',
+    '/coronavirus/2019-ncov/index.html': 'Maladie à Coronavirus 2019 (COVID-19) | CDC',
+    '/flu/index.html': 'Informations sur la grippe saisonnière | CDC',
+    '/vaccines/index.html': 'Vaccins et immunisation | CDC',
+    
+    // NIH
+    '/health-information/diabetes': 'Diabète | National Institutes of Health',
+    '/health-information/coronavirus': 'Coronavirus (COVID-19) | NIH',
+    '/research-training/medical-research-initiatives/activ': 'Accélérer les interventions thérapeutiques COVID-19 | NIH',
+    
+    // Wikipedia
+    '/wiki/Diabetes_mellitus': 'Diabète sucré — Wikipédia',
+    '/wiki/COVID-19': 'COVID-19 — Wikipédia',
+    '/wiki/World_Health_Organization': 'Organisation mondiale de la santé — Wikipédia',
+    '/wiki/Centers_for_Disease_Control_and_Prevention': 'Centers for Disease Control and Prevention — Wikipédia'
+  };
+  
   // Extraire des mots clés du contenu relatif
   const keywords = relatedContent
     .split(' ')
@@ -797,28 +912,55 @@ function generateSourcePreview(sourceUrl, agreementLevel, relatedContent) {
     .slice(0, 5)
     .map(word => word.replace(/[^a-zA-Z0-9]/g, ''));
     
-  // Générer un titre basé sur l'URL et le niveau d'accord
+  // Générer un titre basé sur l'URL
   let title = '';
-  if (path.includes('covid') || path.includes('coronavirus')) {
+  if (knownTitles[path]) {
+    title = knownTitles[path];
+  } else if (path.includes('diabetes') || path.includes('diabete')) {
+    title = 'Diabète: causes, symptômes et traitements';
+  } else if (path.includes('covid') || path.includes('coronavirus')) {
     title = 'COVID-19: Informations et recommandations';
-  } else if (path.includes('diabetes')) {
-    title = 'Le diabète: causes, symptômes et traitements';
-  } else if (path.includes('vaccine')) {
+  } else if (path.includes('vaccine') || path.includes('vaccin')) {
     title = 'Vaccins: efficacité et sécurité';
-  } else if (path.includes('climate')) {
-    title = 'Changement climatique: données scientifiques';
+  } else if (path.includes('health') || path.includes('sante')) {
+    title = 'Informations de santé publique';
   } else {
-    title = `Informations scientifiques sur ${keywords[0] || 'ce sujet'}`;
+    title = `Informations sur ${domain}`;
   }
+  
+  // Phrases d'introduction pour les extraits
+  const highAgreeIntros = [
+    "D'après les recherches scientifiques publiées sur ce site,",
+    "Selon les données vérifiées présentées dans cette source,",
+    "Les études citées sur cette page confirment que",
+    "Cette source de référence indique clairement que"
+  ];
+  
+  const mediumAgreeIntros = [
+    "Cette source suggère que",
+    "D'après certaines informations présentées ici,",
+    "Les données partielles indiquent que",
+    "Selon cette source, qui présente une analyse nuancée,"
+  ];
+  
+  const lowAgreeIntros = [
+    "Contrairement à ce qui est suggéré, cette source indique que",
+    "Les informations présentées ici contredisent l'idée que",
+    "Cette source ne soutient pas l'affirmation selon laquelle",
+    "Les données scientifiques sur cette page remettent en question"
+  ];
   
   // Générer un extrait basé sur le niveau d'accord
   let excerpt = '';
   if (agreementLevel >= 8) {
-    excerpt = `Les études scientifiques confirment que ${keywords.slice(0, 3).join(', ')} sont des facteurs importants à considérer. Les données récentes montrent une corrélation significative entre ces éléments.`;
+    const intro = highAgreeIntros[Math.floor(Math.random() * highAgreeIntros.length)];
+    excerpt = `${intro} ${keywords.slice(0, 3).join(', ')} sont des facteurs importants à considérer. Les données récentes montrent une corrélation significative entre ces éléments, avec un niveau de confiance élevé.`;
   } else if (agreementLevel >= 5) {
-    excerpt = `Certaines études suggèrent que ${keywords.slice(0, 2).join(' et ')} peuvent être liés, mais les preuves ne sont pas concluantes. Des recherches supplémentaires sont nécessaires.`;
+    const intro = mediumAgreeIntros[Math.floor(Math.random() * mediumAgreeIntros.length)];
+    excerpt = `${intro} ${keywords.slice(0, 2).join(' et ')} peuvent être liés, mais les preuves ne sont pas concluantes. Des recherches supplémentaires sont nécessaires pour établir un lien de causalité direct.`;
   } else {
-    excerpt = `Les preuves scientifiques actuelles ne soutiennent pas les affirmations concernant ${keywords[0] || 'ce sujet'}. Les données disponibles contredisent ces informations.`;
+    const intro = lowAgreeIntros[Math.floor(Math.random() * lowAgreeIntros.length)];
+    excerpt = `${intro} ${keywords[0] || 'ce sujet'} est bien établi. Les données disponibles sur cette page suggèrent plutôt une interprétation différente des faits présentés.`;
   }
   
   // Formater la prévisualisation

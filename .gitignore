@@ -36,4 +36,37 @@ config.js
 
 # Fichiers temporaires
 .tmp
-.temp 
+.temp
+
+# Fichiers système
+Thumbs.db
+
+# Fichiers d'environnement
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Fichiers d'IDE et éditeurs
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Fichiers de logs générés (mais pas le logger.js lui-même)
+*.log
+webcheck-api-errors-*.log
+webcheck-api-errors-*.json
+
+# Dépendances
+node_modules/
+bower_components/
+
+# Build et distributions
+/dist
+/build
+/web-ext-artifacts
+
+# Fichiers de configuration locaux
+config.local.js
+/secrets.js 

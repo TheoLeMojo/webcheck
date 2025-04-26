@@ -1,16 +1,17 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>WebCheck Verifier</title>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebCheck Verifier</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <div class="container">
-    <h1>WebCheck Verifier</h1>
-    <div class="controls">
-      <button id="checkPage">Vérifier cette page</button>
-    </div>
+    <header>
+      <h1 id="appTitle">WebCheck Verifier</h1>
+      <p>Vérifiez la fiabilité des contenus web avec des sources fiables</p>
+    </header>
     
     <div class="sources-section">
       <div class="sources-header">
@@ -46,12 +47,138 @@
       </div>
     </div>
     
-    <div id="status" class="status"></div>
-    <div id="results" class="results">
-      <div class="loader" id="loader" style="display: none;"></div>
-      <div id="verificationResult"></div>
+    <div class="verification-container">
+      <h2>Vérification de Page</h2>
+      <button id="checkPage">Vérifier cette page</button>
+      <div id="loader" class="loader" style="display: none;"></div>
+      <div id="status" class="status"></div>
+      <div id="verificationResult" class="result"></div>
+    </div>
+    
+    <!-- Section pour vérifier du texte sélectionné/copié -->
+    <div class="verification-container selected-text-section">
+      <h2>Vérification de Texte Sélectionné</h2>
+      <textarea id="selectedTextInput" placeholder="Collez ici le texte à vérifier"></textarea>
+      <button id="checkSelectedText">Vérifier ce texte</button>
+    </div>
+    
+    <!-- Menu développeur caché -->
+    <div class="developer-menu" style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px; display: none;">
+      <h3>Menu Développeur</h3>
+      <button id="toggleDevMode" class="dev-button">Activer le mode développeur</button>
+      <button id="exportLogs" class="dev-button" style="display: none;">Exporter les logs d'erreurs API</button>
+      <button id="clearLogs" class="dev-button" style="display: none;">Effacer les logs</button>
+      <button id="openLogFile" class="dev-button" style="display: none;">Ouvrir le fichier de log actuel</button>
+      <div id="logStats" class="log-stats" style="display: none;"></div>
     </div>
   </div>
+  
+  <!-- Activer le menu développeur avec une combinaison de touches spécifique ou 5 clics rapides -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Détecter la combinaison Ctrl+Shift+D pour afficher le menu développeur
+      let keys = {ctrl: false, shift: false, d: false};
+      
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Control') keys.ctrl = true;
+        if (e.key === 'Shift') keys.shift = true;
+        if (e.key === 'd' || e.key === 'D') keys.d = true;
+        
+        if (keys.ctrl && keys.shift && keys.d) {
+          const devMenu = document.querySelector('.developer-menu');
+          devMenu.style.display = devMenu.style.display === 'none' ? 'block' : 'none';
+          e.preventDefault();
+        }
+      });
+      
+      document.addEventListener('keyup', function(e) {
+        if (e.key === 'Control') keys.ctrl = false;
+        if (e.key === 'Shift') keys.shift = false;
+        if (e.key === 'd' || e.key === 'D') keys.d = false;
+      });
+      
+      // Système de clics rapides sur le titre pour activer le mode développeur
+      const appTitle = document.getElementById('appTitle');
+      let clickCount = 0;
+      let lastClickTime = 0;
+      
+      appTitle.addEventListener('click', function() {
+        const currentTime = new Date().getTime();
+        
+        // Réinitialiser le compteur si trop de temps s'est écoulé
+        if (currentTime - lastClickTime > 1000) {
+          clickCount = 0;
+        }
+        
+        clickCount++;
+        lastClickTime = currentTime;
+        
+        // Après 5 clics rapides, afficher le menu développeur
+        if (clickCount >= 5) {
+          clickCount = 0;
+          const devMenu = document.querySelector('.developer-menu');
+          devMenu.style.display = 'block';
+          
+          // Activer aussi le mode développeur si pas déjà activé
+          const currentState = localStorage.getItem('devMode') === 'true';
+          if (!currentState) {
+            localStorage.setItem('devMode', 'true');
+            
+            // Notification visuelle
+            appTitle.style.color = '#e91e63';
+            setTimeout(() => {
+              location.reload(); // Recharger pour appliquer les changements
+            }, 1000);
+          } else {
+            // Juste une notification visuelle si déjà activé
+            appTitle.style.color = '#e91e63';
+            setTimeout(() => {
+              appTitle.style.color = '';
+            }, 1000);
+          }
+        }
+      });
+      
+      // Gérer le bouton de mode développeur
+      const toggleDevModeBtn = document.getElementById('toggleDevMode');
+      const exportLogsBtn = document.getElementById('exportLogs');
+      const clearLogsBtn = document.getElementById('clearLogs');
+      const openLogBtn = document.getElementById('openLogFile');
+      
+      if (toggleDevModeBtn) {
+        // Vérifier si le mode développeur est déjà activé
+        const devModeEnabled = localStorage.getItem('devMode') === 'true';
+        toggleDevModeBtn.textContent = devModeEnabled ? 'Désactiver le mode développeur' : 'Activer le mode développeur';
+        
+        if (devModeEnabled) {
+          exportLogsBtn.style.display = 'block';
+          clearLogsBtn.style.display = 'block';
+          document.getElementById('logStats').style.display = 'block';
+          
+          // Vérifier si un fichier de log existe pour afficher le bouton correspondant
+          chrome.storage.local.get(['currentLogFileContent'], function(result) {
+            if (openLogBtn) {
+              openLogBtn.style.display = result.currentLogFileContent && result.currentLogFileContent.length > 0 ? 'block' : 'none';
+            }
+          });
+        }
+        
+        toggleDevModeBtn.addEventListener('click', function() {
+          const currentState = localStorage.getItem('devMode') === 'true';
+          localStorage.setItem('devMode', !currentState);
+          toggleDevModeBtn.textContent = !currentState ? 'Désactiver le mode développeur' : 'Activer le mode développeur';
+          exportLogsBtn.style.display = !currentState ? 'block' : 'none';
+          clearLogsBtn.style.display = !currentState ? 'block' : 'none';
+          openLogBtn.style.display = !currentState ? 'block' : 'none';
+          document.getElementById('logStats').style.display = !currentState ? 'block' : 'none';
+          
+          // Reload page pour appliquer les changements
+          setTimeout(() => location.reload(), 500);
+        });
+      }
+    });
+  </script>
+  
   <script src="popup.js" type="module"></script>
 </body>
 </html> 

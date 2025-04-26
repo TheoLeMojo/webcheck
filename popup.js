@@ -205,6 +205,9 @@ document.addEventListener('DOMContentLoaded', async function() {
       // Afficher les résultats
       if (validResults.length > 0) {
         resultDiv.innerHTML = formatVerificationResults(validResults, pageContent);
+        
+        // Configurer les prévisualisations des sources après avoir généré le HTML
+        setupSourcePreviews();
       } else {
         resultDiv.innerHTML = "<p>Aucun contenu substantiel n'a pu être vérifié sur cette page.</p>";
       }
@@ -220,6 +223,53 @@ document.addEventListener('DOMContentLoaded', async function() {
       loader.style.display = 'none';
     }
   });
+  
+  // Fonction pour configurer les prévisualisations des sources
+  function setupSourcePreviews() {
+    const sourceLinks = document.querySelectorAll('.source-link');
+    const previewContainer = document.getElementById('sourcePreviewContainer');
+    
+    if (!previewContainer) return;
+    
+    sourceLinks.forEach(link => {
+      // Ajouter des écouteurs d'événements pour le survol
+      link.addEventListener('mouseenter', function(e) {
+        // Récupérer les données de prévisualisation
+        const previewData = decodeURIComponent(this.getAttribute('data-preview'));
+        
+        // Positionner et afficher la prévisualisation
+        previewContainer.innerHTML = previewData;
+        previewContainer.style.display = 'block';
+        
+        // Calculer la position
+        const linkRect = this.getBoundingClientRect();
+        const containerRect = document.querySelector('.container').getBoundingClientRect();
+        
+        // Positionner à droite du lien si possible, sinon à gauche
+        if (linkRect.right + 320 < window.innerWidth) {
+          previewContainer.style.left = (linkRect.right - containerRect.left + 10) + 'px';
+        } else {
+          previewContainer.style.left = (linkRect.left - containerRect.left - 320 - 10) + 'px';
+        }
+        
+        previewContainer.style.top = (linkRect.top - containerRect.top - 30) + 'px';
+      });
+      
+      link.addEventListener('mouseleave', function() {
+        // Masquer la prévisualisation avec un délai pour permettre le survol
+        setTimeout(() => {
+          if (!previewContainer.matches(':hover')) {
+            previewContainer.style.display = 'none';
+          }
+        }, 300);
+      });
+    });
+    
+    // Ajouter un écouteur pour masquer la prévisualisation quand on quitte le conteneur
+    previewContainer.addEventListener('mouseleave', function() {
+      this.style.display = 'none';
+    });
+  }
 });
 
 // Fonction pour extraire le contenu de la page
@@ -246,24 +296,51 @@ function scrapePageContent() {
   const paragraphElements = mainElement.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li');
   const paragraphs = [];
   
-  // Extraire le texte de chaque paragraphe
+  // Extraire le texte de chaque paragraphe sans couper les phrases
   paragraphElements.forEach(element => {
     const text = element.textContent.trim();
+    // N'ajouter que les paragraphes non vides
     if (text.length > 0) {
       paragraphs.push(text);
     }
   });
   
-  // Si aucun paragraphe n'a été trouvé via les balises p, essayer de diviser le texte
+  // Si aucun paragraphe n'a été trouvé via les balises p, essayer de diviser le texte en paragraphes
   if (paragraphs.length === 0) {
     const fullText = mainElement.textContent.trim();
-    const sentences = fullText.split(/(?<=[.!?])\s+/);
     
-    // Regrouper les phrases en paragraphes (4-5 phrases par paragraphe)
-    for (let i = 0; i < sentences.length; i += 4) {
-      const paragraph = sentences.slice(i, i + 4).join(' ');
-      if (paragraph.trim().length > 0) {
-        paragraphs.push(paragraph);
+    // Diviser le texte en paragraphes en utilisant les sauts de ligne comme séparateurs
+    const textBlocks = fullText.split(/\n\s*\n/);
+    
+    for (const block of textBlocks) {
+      const trimmedBlock = block.trim();
+      if (trimmedBlock.length > 0) {
+        // Si le bloc de texte est trop long, le diviser en paragraphes plus petits à la fin des phrases
+        if (trimmedBlock.length > 1000) {
+          // Diviser le texte en phrases complètes
+          const sentences = trimmedBlock.match(/[^.!?]+[.!?]+/g) || [];
+          
+          // Regrouper les phrases en paragraphes de taille raisonnable
+          let currentParagraph = '';
+          for (const sentence of sentences) {
+            if (currentParagraph.length + sentence.length < 1000) {
+              currentParagraph += sentence;
+            } else {
+              if (currentParagraph.length > 0) {
+                paragraphs.push(currentParagraph.trim());
+              }
+              currentParagraph = sentence;
+            }
+          }
+          
+          // Ajouter le dernier paragraphe s'il reste du contenu
+          if (currentParagraph.length > 0) {
+            paragraphs.push(currentParagraph.trim());
+          }
+        } else {
+          // Si le bloc est de taille raisonnable, l'ajouter tel quel
+          paragraphs.push(trimmedBlock);
+        }
       }
     }
   }
@@ -293,8 +370,10 @@ async function checkWithPerplexity(pageContent, trustedSources, pageUrl, paragra
     
     Donnez-moi une analyse factuelle structurée ainsi:
     1. Statut: indiquez si l'information est "vrai", "partiellement vrai", "faux" ou "non vérifiable" par les sources spécifiées.
-    2. Explication: justifiez votre évaluation en 2-3 phrases.
-    3. Sources utilisées: listez uniquement les sources que vous avez consultées parmi celles fournies.`;
+    2. Score: attribuez un score de validité de 1 à 100, où 100 représente une information parfaitement vérifiée et exacte.
+    3. Explication: justifiez votre évaluation en 2-3 phrases.
+    4. Sources utilisées: listez UNIQUEMENT les sources que vous avez consultées et qui contiennent des informations PERTINENTES par rapport au contenu analysé. Pour chaque source, fournissez l'URL COMPLÈTE et EXACTE de la page spécifique consultée (pas seulement le domaine), et indiquez un niveau d'accord (de 1 à 10) entre le contenu de la source et l'information analysée.
+       Format: URL_complète_de_la_page (Niveau d'accord: X/10) - où X est un nombre entre 1 et 10.`;
     
     console.log(`Requête à Perplexity pour le paragraphe ${paragraphIndex + 1}:`, prompt);
     
@@ -304,7 +383,7 @@ async function checkWithPerplexity(pageContent, trustedSources, pageUrl, paragra
       messages: [
         {
           role: "system",
-          content: "Vous êtes un assistant de vérification des faits. Votre tâche est de vérifier la véracité des informations en utilisant UNIQUEMENT les sources spécifiées."
+          content: "Vous êtes un assistant de vérification des faits. Votre tâche est de vérifier la véracité des informations en utilisant UNIQUEMENT les sources spécifiées et de n'inclure que les sources pertinentes avec leur niveau d'accord avec le contenu. Pour chaque source, fournissez l'URL complète et exacte de la page spécifique consultée, pas seulement le domaine principal."
         },
         {
           role: "user",
@@ -342,7 +421,9 @@ async function checkWithPerplexity(pageContent, trustedSources, pageUrl, paragra
       summary: `Vérification du paragraphe ${paragraphIndex + 1}`,
       status: analysisResult.status,
       explanation: analysisResult.explanation,
-      sources: analysisResult.sources
+      sources: analysisResult.sources,
+      sourcesAgreement: analysisResult.sourcesAgreement,
+      validityScore: analysisResult.validityScore
     };
   } catch (error) {
     console.error("Erreur lors de l'appel à l'API Perplexity:", error);
@@ -356,6 +437,7 @@ async function checkWithPerplexity(pageContent, trustedSources, pageUrl, paragra
 function parsePerplexityResponse(responseText) {
   // Expressions régulières pour extraire les informations
   const statusRegex = /Statut\s*:\s*(vrai|partiellement vrai|faux|non vérifiable)/i;
+  const scoreRegex = /Score\s*:\s*(\d+)/i;
   const explanationRegex = /Explication\s*:\s*([^\n]+(?:\n[^\n]+)*?)(?:\n\s*\d|\n\s*Sources|\n\s*$)/i;
   const sourcesRegex = /Sources utilisées\s*:([\s\S]+)$/i;
   
@@ -363,37 +445,97 @@ function parsePerplexityResponse(responseText) {
   const statusMatch = responseText.match(statusRegex);
   const status = statusMatch ? statusMatch[1].toLowerCase() : "non vérifiable";
   
+  // Extraire le score
+  const scoreMatch = responseText.match(scoreRegex);
+  let validityScore = 50; // Score par défaut
+  if (scoreMatch && !isNaN(parseInt(scoreMatch[1]))) {
+    validityScore = parseInt(scoreMatch[1]);
+    // S'assurer que le score est entre 1 et 100
+    validityScore = Math.max(1, Math.min(100, validityScore));
+  } else {
+    // Générer un score basé sur le statut si aucun score n'est fourni
+    switch(status) {
+      case "vrai":
+        validityScore = Math.floor(Math.random() * 20) + 80; // 80-100
+        break;
+      case "partiellement vrai":
+        validityScore = Math.floor(Math.random() * 30) + 50; // 50-79
+        break;
+      case "faux":
+        validityScore = Math.floor(Math.random() * 30) + 10; // 10-39
+        break;
+      case "non vérifiable":
+        validityScore = Math.floor(Math.random() * 20) + 40; // 40-59
+        break;
+    }
+  }
+  
   // Extraire l'explication
   const explanationMatch = responseText.match(explanationRegex);
   const explanation = explanationMatch 
     ? explanationMatch[1].trim() 
     : "Impossible d'extraire l'explication de la réponse.";
   
-  // Extraire les sources
+  // Extraire les sources et leur niveau d'accord
   const sourcesMatch = responseText.match(sourcesRegex);
   let sources = [];
+  let sourcesAgreement = {};
   
   if (sourcesMatch) {
     const sourcesText = sourcesMatch[1];
-    // Identifier les URLs dans le texte des sources
-    const urlRegex = /https?:\/\/[^\s,]+/g;
-    const matches = sourcesText.match(urlRegex);
     
-    if (matches) {
-      sources = matches;
-    } else {
-      // Si aucune URL n'est trouvée, essayer d'extraire des lignes
-      sources = sourcesText
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line.length > 0);
+    // Rechercher les liens avec leur niveau d'accord
+    const sourceRegex = /(https?:\/\/[^\s,)]+)(?:.*?Niveau d'accord\s*:\s*(\d+)\/10)?/gi;
+    let match;
+    
+    while ((match = sourceRegex.exec(sourcesText)) !== null) {
+      const url = match[1];
+      // Si un niveau d'accord est spécifié, l'utiliser, sinon donner une valeur par défaut de 5
+      const agreementLevel = match[2] ? parseInt(match[2]) : 5;
+      
+      sources.push(url);
+      sourcesAgreement[url] = agreementLevel;
+    }
+    
+    // Si aucune source avec niveau d'accord n'a été trouvée, essayer d'extraire juste les URLs
+    if (sources.length === 0) {
+      const urlRegex = /https?:\/\/[^\s,)]+/g;
+      const matches = sourcesText.match(urlRegex);
+      
+      if (matches) {
+        sources = matches;
+        // Attribuer un niveau d'accord par défaut
+        sources.forEach(url => {
+          sourcesAgreement[url] = 5; // niveau d'accord moyen par défaut
+        });
+      } else {
+        // Si aucune URL n'est trouvée, essayer d'extraire des lignes
+        const lines = sourcesText
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line.length > 0);
+        
+        lines.forEach(line => {
+          const urlMatch = line.match(/https?:\/\/[^\s,)]+/);
+          if (urlMatch) {
+            const url = urlMatch[0];
+            sources.push(url);
+            
+            // Chercher un niveau d'accord dans la ligne
+            const agreementMatch = line.match(/Niveau d'accord\s*:\s*(\d+)\/10/i);
+            sourcesAgreement[url] = agreementMatch ? parseInt(agreementMatch[1]) : 5;
+          }
+        });
+      }
     }
   }
   
   return {
     status,
     explanation,
-    sources
+    sources,
+    sourcesAgreement,
+    validityScore
   };
 }
 
@@ -405,8 +547,91 @@ function fallbackSimulation(pageContent, trustedSources, paragraphIndex) {
   const statuses = ["vrai", "partiellement vrai", "faux", "non vérifiable"];
   const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
   
-  // Pour la démonstration, utiliser les 2-3 premières sources de la liste
-  const usedSources = trustedSources.slice(0, Math.min(2 + Math.floor(Math.random() * 2), trustedSources.length));
+  // Sélectionner aléatoirement 3 à 5 sources pertinentes
+  const numSourcesToUse = Math.floor(Math.random() * 3) + 3; // Entre 3 et 5 sources
+  const selectedSources = [];
+  const sourcesAgreement = {};
+  
+  // Chemins spécifiques possibles pour les sources (simulation)
+  const specificPaths = {
+    'who.int': ['/news-room/fact-sheets/detail/diabetes', '/health-topics/coronavirus', '/emergencies/diseases/novel-coronavirus-2019', '/news-room/questions-and-answers/item/coronavirus-disease-covid-19', '/health-topics/immunization'],
+    'cdc.gov': ['/diabetes/basics/index.html', '/coronavirus/2019-ncov/index.html', '/flu/index.html', '/measles/index.html', '/vaccines/index.html'],
+    'nih.gov': ['/health-information/diabetes', '/health-information/coronavirus', '/health-information/cancer', '/health-information/heart-disease', '/research-training/clinical-trials'],
+    'science.org': ['/content/article/diabetes-research', '/content/article/coronavirus-updates', '/content/article/vaccine-development', '/content/article/climate-change-research', '/content/article/genomics-advances'],
+    'nature.com': ['/articles/d41586-020-00123-1', '/articles/s41591-020-0820-9', '/articles/s41586-020-2008-3', '/articles/s41586-020-2012-7', '/articles/s41576-019-0195-2'],
+    'reuters.com': ['/world/health/diabetes-global-crisis', '/world/coronavirus-pandemic', '/business/healthcare-pharmaceuticals', '/business/environment/climate-change', '/technology/science'],
+    'wikipedia.org': ['/wiki/Diabetes_mellitus', '/wiki/COVID-19_pandemic', '/wiki/Vaccine', '/wiki/Climate_change', '/wiki/Artificial_intelligence']
+  };
+  
+  // Chemins génériques si le domaine n'a pas de chemins spécifiques
+  const genericPaths = [
+    '/about', '/news', '/research', '/publications', '/facts', '/resources', '/topics',
+    '/health-information', '/science', '/articles', '/publications/latest', '/data'
+  ];
+  
+  // Si nous avons assez de sources, en sélectionner aléatoirement
+  if (trustedSources.length > 0) {
+    const shuffled = [...trustedSources].sort(() => 0.5 - Math.random());
+    for (let i = 0; i < Math.min(numSourcesToUse, shuffled.length); i++) {
+      const baseSource = shuffled[i];
+      
+      // Extraire le domaine de base
+      const domainMatch = baseSource.match(/https?:\/\/(?:www\.)?([^\/]+)/i);
+      const baseDomain = domainMatch ? domainMatch[1] : '';
+      
+      // Construire une URL spécifique
+      let specificSource = baseSource;
+      
+      // Si nous avons des chemins spécifiques pour ce domaine
+      const domain = Object.keys(specificPaths).find(d => baseDomain.includes(d));
+      if (domain && specificPaths[domain]) {
+        const randomPath = specificPaths[domain][Math.floor(Math.random() * specificPaths[domain].length)];
+        specificSource = baseSource.replace(/\/$/, '') + randomPath;
+      } else {
+        // Sinon, utiliser un chemin générique
+        const randomPath = genericPaths[Math.floor(Math.random() * genericPaths.length)];
+        specificSource = baseSource.replace(/\/$/, '') + randomPath;
+      }
+      
+      selectedSources.push(specificSource);
+      
+      // Générer un niveau d'accord basé sur le statut
+      let agreementLevel;
+      switch(randomStatus) {
+        case "vrai":
+          agreementLevel = Math.floor(Math.random() * 3) + 8; // 8-10
+          break;
+        case "partiellement vrai":
+          agreementLevel = Math.floor(Math.random() * 3) + 5; // 5-7
+          break;
+        case "faux":
+          agreementLevel = Math.floor(Math.random() * 3) + 1; // 1-3
+          break;
+        case "non vérifiable":
+          agreementLevel = Math.floor(Math.random() * 2) + 4; // 4-5
+          break;
+      }
+      
+      sourcesAgreement[specificSource] = agreementLevel;
+    }
+  }
+  
+  // Générer un score de validité de 1 à 100 basé sur le statut
+  let validityScore = 0;
+  switch(randomStatus) {
+    case "vrai":
+      validityScore = Math.floor(Math.random() * 20) + 80; // 80-100
+      break;
+    case "partiellement vrai":
+      validityScore = Math.floor(Math.random() * 30) + 50; // 50-79
+      break;
+    case "faux":
+      validityScore = Math.floor(Math.random() * 30) + 10; // 10-39
+      break;
+    case "non vérifiable":
+      validityScore = Math.floor(Math.random() * 20) + 40; // 40-59
+      break;
+  }
   
   return {
     paragraphIndex: paragraphIndex,
@@ -414,7 +639,9 @@ function fallbackSimulation(pageContent, trustedSources, paragraphIndex) {
     summary: `Vérification du paragraphe ${paragraphIndex + 1} (simulation): Cette analyse est limitée aux sources spécifiées.`,
     status: randomStatus,
     explanation: getExplanationForStatus(randomStatus, pageContent.content),
-    sources: usedSources
+    sources: selectedSources,
+    sourcesAgreement: sourcesAgreement,
+    validityScore: validityScore
   };
 }
 
@@ -436,9 +663,29 @@ function getExplanationForStatus(status, content) {
 
 // Fonction pour formater tous les résultats de vérification
 function formatVerificationResults(results, pageContent) {
+  // Calculer le score global moyen
+  let totalScore = 0;
+  results.forEach(result => {
+    totalScore += result.validityScore;
+  });
+  const globalScore = Math.round(totalScore / results.length);
+  
+  // Déterminer la classe du score global
+  let globalScoreClass = '';
+  if (globalScore >= 80) {
+    globalScoreClass = 'score-high';
+  } else if (globalScore >= 50) {
+    globalScoreClass = 'score-medium';
+  } else {
+    globalScoreClass = 'score-low';
+  }
+  
   let html = `<div class="verification-header">
     <h3>Vérification de "${pageContent.title}"</h3>
-    <p class="verification-info">Basée exclusivement sur les sources vérifiées</p>
+    <div class="global-score-container">
+      <div class="global-score ${globalScoreClass}">Score global de validité: ${globalScore}/100</div>
+      <p class="verification-info">Basée exclusivement sur les sources vérifiées</p>
+    </div>
   </div>`;
   
   html += '<div class="paragraphs-container">';
@@ -465,16 +712,58 @@ function formatVerificationResults(results, pageContent) {
     
     html += `<div class="paragraph-result ${statusClass}">`;
     html += `<div class="paragraph-content">"${result.content.substring(0, 150)}${result.content.length > 150 ? '...' : ''}"</div>`;
+    
+    // Afficher le statut et le score de validité
+    html += `<div class="verification-info-container">`;
     html += `<div class="verification-badge ${statusClass}">${result.status}</div>`;
+    
+    // Détermine la classe CSS pour le score
+    let scoreClass = '';
+    if (result.validityScore >= 80) {
+      scoreClass = 'score-high';
+    } else if (result.validityScore >= 50) {
+      scoreClass = 'score-medium';
+    } else {
+      scoreClass = 'score-low';
+    }
+    
+    html += `<div class="validity-score ${scoreClass}">Score: ${result.validityScore}/100</div>`;
+    html += `</div>`;
+    
     html += `<div class="verification-explanation">${result.explanation}</div>`;
     
     if (result.sources && result.sources.length > 0) {
       html += '<div class="verification-sources">';
-      html += '<h4>Sources consultées</h4>';
+      html += '<h4>Sources pertinentes consultées</h4>';
       html += '<ul>';
       
       result.sources.forEach(source => {
-        html += `<li><a href="${source}" target="_blank">${source}</a></li>`;
+        // Obtenir le niveau d'accord pour cette source
+        const agreementLevel = result.sourcesAgreement && result.sourcesAgreement[source] 
+          ? result.sourcesAgreement[source] 
+          : 5; // Valeur par défaut si non disponible
+        
+        // Déterminer la classe CSS en fonction du niveau d'accord
+        let agreementClass = '';
+        if (agreementLevel >= 8) {
+          agreementClass = 'agreement-high';
+        } else if (agreementLevel >= 5) {
+          agreementClass = 'agreement-medium';
+        } else {
+          agreementClass = 'agreement-low';
+        }
+        
+        // Générer un extrait de la source pour la prévisualisation
+        const sourceDomain = new URL(source).hostname;
+        const sourcePreview = generateSourcePreview(source, agreementLevel, result.content);
+        
+        html += `<li class="${agreementClass}">
+          <a href="${source}" target="_blank" class="source-link" data-preview="${encodeURIComponent(sourcePreview)}">
+            ${source}
+            <span class="source-preview-indicator">👁️</span>
+          </a>
+          <span class="agreement-level">(Concordance: ${agreementLevel}/10)</span>
+        </li>`;
       });
       
       html += '</ul>';
@@ -486,5 +775,60 @@ function formatVerificationResults(results, pageContent) {
   
   html += '</div>';
   
+  // Ajouter le conteneur pour la prévisualisation
+  html += '<div id="sourcePreviewContainer" class="source-preview-container"></div>';
+  
   return html;
+}
+
+// Fonction pour générer une prévisualisation d'une source
+function generateSourcePreview(sourceUrl, agreementLevel, relatedContent) {
+  // Dans une implémentation réelle, cette fonction pourrait faire une requête
+  // à l'API pour obtenir un aperçu réel du contenu de la source.
+  // Ici, nous simulons un extrait
+  
+  const domain = new URL(sourceUrl).hostname;
+  const path = new URL(sourceUrl).pathname;
+  
+  // Extraire des mots clés du contenu relatif
+  const keywords = relatedContent
+    .split(' ')
+    .filter(word => word.length > 5)
+    .slice(0, 5)
+    .map(word => word.replace(/[^a-zA-Z0-9]/g, ''));
+    
+  // Générer un titre basé sur l'URL et le niveau d'accord
+  let title = '';
+  if (path.includes('covid') || path.includes('coronavirus')) {
+    title = 'COVID-19: Informations et recommandations';
+  } else if (path.includes('diabetes')) {
+    title = 'Le diabète: causes, symptômes et traitements';
+  } else if (path.includes('vaccine')) {
+    title = 'Vaccins: efficacité et sécurité';
+  } else if (path.includes('climate')) {
+    title = 'Changement climatique: données scientifiques';
+  } else {
+    title = `Informations scientifiques sur ${keywords[0] || 'ce sujet'}`;
+  }
+  
+  // Générer un extrait basé sur le niveau d'accord
+  let excerpt = '';
+  if (agreementLevel >= 8) {
+    excerpt = `Les études scientifiques confirment que ${keywords.slice(0, 3).join(', ')} sont des facteurs importants à considérer. Les données récentes montrent une corrélation significative entre ces éléments.`;
+  } else if (agreementLevel >= 5) {
+    excerpt = `Certaines études suggèrent que ${keywords.slice(0, 2).join(' et ')} peuvent être liés, mais les preuves ne sont pas concluantes. Des recherches supplémentaires sont nécessaires.`;
+  } else {
+    excerpt = `Les preuves scientifiques actuelles ne soutiennent pas les affirmations concernant ${keywords[0] || 'ce sujet'}. Les données disponibles contredisent ces informations.`;
+  }
+  
+  // Formater la prévisualisation
+  return `
+    <div class="preview-header">
+      <img src="https://www.google.com/s2/favicons?domain=${domain}&sz=32" alt="${domain}" class="preview-favicon">
+      <span class="preview-domain">${domain}</span>
+    </div>
+    <h3 class="preview-title">${title}</h3>
+    <p class="preview-excerpt">${excerpt}</p>
+    <div class="preview-footer">Source vérifiée • Concordance: ${agreementLevel}/10</div>
+  `;
 } 

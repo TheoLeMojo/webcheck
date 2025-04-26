@@ -339,4 +339,179 @@ button:disabled {
 
 .verification-sources a:hover {
   text-decoration: underline;
+}
+
+.verification-info-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.validity-score {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.validity-score.score-high {
+  background-color: rgba(52, 168, 83, 0.1);
+  color: #34a853;
+}
+
+.validity-score.score-medium {
+  background-color: rgba(251, 188, 5, 0.1);
+  color: #b06000;
+}
+
+.validity-score.score-low {
+  background-color: rgba(234, 67, 53, 0.1);
+  color: #ea4335;
+}
+
+/* Styles pour l'affichage du niveau d'accord des sources */
+.verification-sources li.agreement-high {
+  border-left: 3px solid #34a853;
+  padding-left: 5px;
+  margin-bottom: 5px;
+}
+
+.verification-sources li.agreement-medium {
+  border-left: 3px solid #fbbc05;
+  padding-left: 5px;
+  margin-bottom: 5px;
+}
+
+.verification-sources li.agreement-low {
+  border-left: 3px solid #ea4335;
+  padding-left: 5px;
+  margin-bottom: 5px;
+}
+
+.agreement-level {
+  font-size: 10px;
+  margin-left: 6px;
+  opacity: 0.8;
+  color: #5f6368;
+}
+
+/* Pour les sources à fort niveau d'accord */
+.agreement-high .agreement-level {
+  color: #34a853;
+}
+
+/* Pour les sources à niveau d'accord moyen */
+.agreement-medium .agreement-level {
+  color: #b06000;
+}
+
+/* Pour les sources à faible niveau d'accord */
+.agreement-low .agreement-level {
+  color: #ea4335;
+}
+
+.global-score-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.global-score {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.global-score.score-high {
+  background-color: rgba(52, 168, 83, 0.15);
+  color: #34a853;
+}
+
+.global-score.score-medium {
+  background-color: rgba(251, 188, 5, 0.15);
+  color: #b06000;
+}
+
+.global-score.score-low {
+  background-color: rgba(234, 67, 53, 0.15);
+  color: #ea4335;
+}
+
+/* Styles pour la prévisualisation des sources */
+.source-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.source-preview-indicator {
+  margin-left: 5px;
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.source-link:hover .source-preview-indicator {
+  opacity: 1;
+}
+
+.source-preview-container {
+  position: absolute;
+  width: 320px;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  padding: 12px;
+  z-index: 1000;
+  display: none;
+  border: 1px solid #dadce0;
+  font-size: 12px;
+  color: #202124;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #f0f0f0;
+  padding-bottom: 8px;
+}
+
+.preview-favicon {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+}
+
+.preview-domain {
+  font-size: 12px;
+  color: #5f6368;
+}
+
+.preview-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: #1a73e8;
+}
+
+.preview-excerpt {
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0 0 10px 0;
+  color: #3c4043;
+}
+
+.preview-footer {
+  font-size: 11px;
+  color: #5f6368;
+  text-align: right;
+  border-top: 1px solid #f0f0f0;
+  padding-top: 8px;
+  margin-top: 5px;
 } 

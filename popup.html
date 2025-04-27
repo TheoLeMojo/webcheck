@@ -1,184 +1,155 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WebCheck Verifier</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <div class="container">
-    <header>
-      <h1 id="appTitle">WebCheck Verifier</h1>
-      <p>Vérifiez la fiabilité des contenus web avec des sources fiables</p>
-    </header>
-    
-    <div class="sources-section">
-      <div class="sources-header">
-        <h2>Sources vérifiées par défaut</h2>
+    <!-- Header -->
+    <div class="header">
+      <div class="logo">
+        <span class="logo-text">WebChecker</span>
+      </div>
+    </div>
+
+    <!-- Main Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <i class="fas fa-shield-alt"></i>
+          Verify Content
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="btn-group">
+          <button id="checkButton" class="btn btn-primary">
+            <i class="fas fa-check-circle"></i> Verify Page
+          </button>
+          <button id="verifySelectedButton" class="btn btn-outline-primary">
+            <i class="fas fa-search"></i> Verify Selected Text
+          </button>
+          <button id="clearButton" class="btn btn-secondary">
+            <i class="fas fa-undo"></i> Clear Results
+          </button>
+        </div>
+        
+        <div id="statusMessage" class="status info" style="display: none;"></div>
+        
+        <div id="verificationResults" class="verification-result" style="display: none;">
+          <!-- Results will be populated here -->
+        </div>
+        
+        <div id="finalScore" class="final-score">
+          <div class="final-score-title">Page Verification Score</div>
+          <div id="finalScoreValue" class="final-score-value">0</div>
+          <div id="finalScoreExplanation" class="final-score-explanation"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sources Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <i class="fas fa-link"></i>
+          Trusted Sources
+        </div>
         <div class="toggle-container">
-          <span class="toggle-label">Afficher</span>
-          <input type="checkbox" id="toggleDefaultSources" class="toggle-checkbox">
-          <label for="toggleDefaultSources" class="toggle-label"></label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="sourcesToggle">
+            <span class="slider"></span>
+          </label>
+          <span class="toggle-label">Manage Sources</span>
         </div>
       </div>
-      <div id="defaultSourcesList" class="sources-list" style="display: none;">
-        <!-- Liste des sources par défaut générée par JS -->
-      </div>
-    </div>
-    
-    <div class="sources-section">
-      <div class="sources-header">
-        <h2>Vos sources vérifiées</h2>
-        <div class="toggle-container">
-          <span class="toggle-label">Afficher</span>
-          <input type="checkbox" id="toggleUserSources" class="toggle-checkbox">
-          <label for="toggleUserSources" class="toggle-label"></label>
+      <div class="card-body" id="sourcesSection" style="display: none;">
+        <div class="sources-header">
+          <span class="sources-title">Default Sources</span>
         </div>
-      </div>
-      <div id="userSourcesContainer" class="sources-container" style="display: none;">
-        <div id="userSourcesList" class="sources-list">
-          <!-- Liste des sources de l'utilisateur générée par JS -->
+        <div id="defaultSources" class="sources-list">
+          <!-- Default sources will be populated here -->
         </div>
-        <div class="add-source-container">
-          <input type="text" id="newSourceInput" placeholder="Entrez l'URL d'une source fiable">
-          <button id="addSourceButton">Ajouter</button>
+        
+        <div class="sources-header">
+          <span class="sources-title">Your Sources</span>
+        </div>
+        <div id="userSources" class="sources-list">
+          <!-- User sources will be populated here -->
+        </div>
+        
+        <div class="add-source">
+          <input type="text" id="newSourceInput" class="form-control" placeholder="Add a new trusted source URL">
+          <button id="addSourceButton" class="btn btn-primary">Add</button>
         </div>
       </div>
     </div>
-    
-    <div class="verification-container">
-      <h2>Vérification de Page</h2>
-      <button id="checkPage">Vérifier cette page</button>
-      <div id="loader" class="loader" style="display: none;"></div>
-      <div id="status" class="status"></div>
-      <div id="verificationResult" class="result"></div>
+
+    <!-- Toggle Developer Mode (petit, en bas) -->
+    <div class="dev-toggle-container">
+      <div class="toggle-container toggle-small">
+        <label class="toggle-switch toggle-switch-small">
+          <input type="checkbox" id="developerToggle">
+          <span class="slider"></span>
+        </label>
+        <span class="toggle-label toggle-label-small">Developer Mode</span>
+      </div>
     </div>
-    
-    <!-- Section pour vérifier du texte sélectionné/copié -->
-    <div class="verification-container selected-text-section">
-      <h2>Vérification de Texte Sélectionné</h2>
-      <textarea id="selectedTextInput" placeholder="Collez ici le texte à vérifier"></textarea>
-      <button id="checkSelectedText">Vérifier ce texte</button>
+
+    <!-- Developer Tools Card (hidden by default) -->
+    <div id="developerSection" class="card" style="display: none;">
+      <div class="card-header">
+        <div class="card-title">
+          <i class="fas fa-wrench"></i>
+          Developer Tools
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="stats-grid">
+          <div class="stat-item">
+            <div class="stat-label">Pages Verified</div>
+            <div id="pagesVerified" class="stat-value">0</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Paragraphs Checked</div>
+            <div id="paragraphsChecked" class="stat-value">0</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">API Calls</div>
+            <div id="apiCalls" class="stat-value">0</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">API Errors</div>
+            <div id="apiErrors" class="stat-value">0</div>
+          </div>
+        </div>
+        
+        <div class="log-section">
+          <h3>API Error Logs</h3>
+          <div class="log-content" id="logContent">No logs available</div>
+          <div class="btn-group">
+            <button id="clearLogsButton" class="btn btn-secondary btn-sm">
+              <i class="fas fa-trash"></i> Clear Logs
+            </button>
+            <button id="downloadLogsButton" class="btn btn-primary btn-sm">
+              <i class="fas fa-download"></i> Download Logs
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
-    
-    <!-- Menu développeur caché -->
-    <div class="developer-menu" style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px; display: none;">
-      <h3>Menu Développeur</h3>
-      <button id="toggleDevMode" class="dev-button">Activer le mode développeur</button>
-      <button id="exportLogs" class="dev-button" style="display: none;">Exporter les logs d'erreurs API</button>
-      <button id="clearLogs" class="dev-button" style="display: none;">Effacer les logs</button>
-      <button id="openLogFile" class="dev-button" style="display: none;">Ouvrir le fichier de log actuel</button>
-      <div id="logStats" class="log-stats" style="display: none;"></div>
-    </div>
+
+    <!-- Source Preview Container (hidden, shown when hovering on sources) -->
+    <div id="sourcePreview" class="source-preview-container"></div>
   </div>
-  
-  <!-- Activer le menu développeur avec une combinaison de touches spécifique ou 5 clics rapides -->
-  <script>
-    document.addEventListener('DOMContentLoaded', function() {
-      // Détecter la combinaison Ctrl+Shift+D pour afficher le menu développeur
-      let keys = {ctrl: false, shift: false, d: false};
-      
-      document.addEventListener('keydown', function(e) {
-        if (e.key === 'Control') keys.ctrl = true;
-        if (e.key === 'Shift') keys.shift = true;
-        if (e.key === 'd' || e.key === 'D') keys.d = true;
-        
-        if (keys.ctrl && keys.shift && keys.d) {
-          const devMenu = document.querySelector('.developer-menu');
-          devMenu.style.display = devMenu.style.display === 'none' ? 'block' : 'none';
-          e.preventDefault();
-        }
-      });
-      
-      document.addEventListener('keyup', function(e) {
-        if (e.key === 'Control') keys.ctrl = false;
-        if (e.key === 'Shift') keys.shift = false;
-        if (e.key === 'd' || e.key === 'D') keys.d = false;
-      });
-      
-      // Système de clics rapides sur le titre pour activer le mode développeur
-      const appTitle = document.getElementById('appTitle');
-      let clickCount = 0;
-      let lastClickTime = 0;
-      
-      appTitle.addEventListener('click', function() {
-        const currentTime = new Date().getTime();
-        
-        // Réinitialiser le compteur si trop de temps s'est écoulé
-        if (currentTime - lastClickTime > 1000) {
-          clickCount = 0;
-        }
-        
-        clickCount++;
-        lastClickTime = currentTime;
-        
-        // Après 5 clics rapides, afficher le menu développeur
-        if (clickCount >= 5) {
-          clickCount = 0;
-          const devMenu = document.querySelector('.developer-menu');
-          devMenu.style.display = 'block';
-          
-          // Activer aussi le mode développeur si pas déjà activé
-          const currentState = localStorage.getItem('devMode') === 'true';
-          if (!currentState) {
-            localStorage.setItem('devMode', 'true');
-            
-            // Notification visuelle
-            appTitle.style.color = '#e91e63';
-            setTimeout(() => {
-              location.reload(); // Recharger pour appliquer les changements
-            }, 1000);
-          } else {
-            // Juste une notification visuelle si déjà activé
-            appTitle.style.color = '#e91e63';
-            setTimeout(() => {
-              appTitle.style.color = '';
-            }, 1000);
-          }
-        }
-      });
-      
-      // Gérer le bouton de mode développeur
-      const toggleDevModeBtn = document.getElementById('toggleDevMode');
-      const exportLogsBtn = document.getElementById('exportLogs');
-      const clearLogsBtn = document.getElementById('clearLogs');
-      const openLogBtn = document.getElementById('openLogFile');
-      
-      if (toggleDevModeBtn) {
-        // Vérifier si le mode développeur est déjà activé
-        const devModeEnabled = localStorage.getItem('devMode') === 'true';
-        toggleDevModeBtn.textContent = devModeEnabled ? 'Désactiver le mode développeur' : 'Activer le mode développeur';
-        
-        if (devModeEnabled) {
-          exportLogsBtn.style.display = 'block';
-          clearLogsBtn.style.display = 'block';
-          document.getElementById('logStats').style.display = 'block';
-          
-          // Vérifier si un fichier de log existe pour afficher le bouton correspondant
-          chrome.storage.local.get(['currentLogFileContent'], function(result) {
-            if (openLogBtn) {
-              openLogBtn.style.display = result.currentLogFileContent && result.currentLogFileContent.length > 0 ? 'block' : 'none';
-            }
-          });
-        }
-        
-        toggleDevModeBtn.addEventListener('click', function() {
-          const currentState = localStorage.getItem('devMode') === 'true';
-          localStorage.setItem('devMode', !currentState);
-          toggleDevModeBtn.textContent = !currentState ? 'Désactiver le mode développeur' : 'Activer le mode développeur';
-          exportLogsBtn.style.display = !currentState ? 'block' : 'none';
-          clearLogsBtn.style.display = !currentState ? 'block' : 'none';
-          openLogBtn.style.display = !currentState ? 'block' : 'none';
-          document.getElementById('logStats').style.display = !currentState ? 'block' : 'none';
-          
-          // Reload page pour appliquer les changements
-          setTimeout(() => location.reload(), 500);
-        });
-      }
-    });
-  </script>
-  
+
+  <!-- Chargement de logger.js comme module -->
+  <script src="logger.js" type="module"></script>
+  <!-- Chargement de popup.js comme module -->
   <script src="popup.js" type="module"></script>
 </body>
 </html> 

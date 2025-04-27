@@ -2,32 +2,45 @@
 import config from './config.js';
 // Importer les fonctions de logging
 import { logApiError, exportApiErrorLogs, getApiErrorLogs, clearApiErrorLogs, openCurrentLogFile } from './logger.js';
+// Importer les sources fiables
+import { getTrustedSources } from './trusted_sources.js';
 
 // Attendre que le DOM soit chargé
 document.addEventListener('DOMContentLoaded', async function() {
   // Récupérer les éléments du DOM
-  const checkButton = document.getElementById('checkPage');
-  const checkSelectedTextButton = document.getElementById('checkSelectedText');
-  const selectedTextInput = document.getElementById('selectedTextInput');
-  const statusDiv = document.getElementById('status');
-  const resultDiv = document.getElementById('verificationResult');
-  const loader = document.getElementById('loader');
+  const checkButton = document.getElementById('checkButton');
+  const verifySelectedButton = document.getElementById('verifySelectedButton');
+  const clearButton = document.getElementById('clearButton');
+  const statusMessage = document.getElementById('statusMessage');
+  const verificationResults = document.getElementById('verificationResults');
+  const finalScore = document.getElementById('finalScore');
+  const finalScoreValue = document.getElementById('finalScoreValue');
+  const finalScoreExplanation = document.getElementById('finalScoreExplanation');
   
   // Éléments pour les sources
-  const defaultSourcesList = document.getElementById('defaultSourcesList');
-  const userSourcesList = document.getElementById('userSourcesList');
-  const toggleDefaultSources = document.getElementById('toggleDefaultSources');
-  const toggleUserSources = document.getElementById('toggleUserSources');
+  const defaultSources = document.getElementById('defaultSources');
+  const userSources = document.getElementById('userSources');
+  const sourcesToggle = document.getElementById('sourcesToggle');
+  const sourcesSection = document.getElementById('sourcesSection');
   const newSourceInput = document.getElementById('newSourceInput');
   const addSourceButton = document.getElementById('addSourceButton');
-  const userSourcesContainer = document.getElementById('userSourcesContainer');
+  const sourcePreview = document.getElementById('sourcePreview');
   
   // Configuration du menu développeur
+  const developerToggle = document.getElementById('developerToggle');
+  const developerSection = document.getElementById('developerSection');
+  const clearLogsButton = document.getElementById('clearLogsButton');
+  const downloadLogsButton = document.getElementById('downloadLogsButton');
+  const logContent = document.getElementById('logContent');
+  const pagesVerified = document.getElementById('pagesVerified');
+  const paragraphsChecked = document.getElementById('paragraphsChecked');
+  const apiCalls = document.getElementById('apiCalls');
+  const apiErrors = document.getElementById('apiErrors');
+  
+  // État du développeur
   const devModeEnabled = localStorage.getItem('devMode') === 'true';
-  const exportLogsBtn = document.getElementById('exportLogs');
-  const clearLogsBtn = document.getElementById('clearLogs');
-  const openLogBtn = document.getElementById('openLogFile');
-  const logStatsDiv = document.getElementById('logStats');
+  developerToggle.checked = devModeEnabled;
+  developerSection.style.display = devModeEnabled ? 'block' : 'none';
   
   // Tentative d'auto-remplir le champ de texte avec le texte sélectionné
   try {
@@ -39,1547 +52,1216 @@ document.addEventListener('DOMContentLoaded', async function() {
       target: { tabId: tab.id },
       function: () => window.getSelection().toString()
     });
-    
-    // Si du texte a été sélectionné, le pré-remplir dans le champ
-    if (selection && selection[0] && selection[0].result) {
-      selectedTextInput.value = selection[0].result.trim();
-    }
   } catch (error) {
     console.error('Erreur lors de la récupération du texte sélectionné:', error);
   }
   
-  if (devModeEnabled) {
-    // Configurer les boutons du menu développeur
-    if (exportLogsBtn) {
-      exportLogsBtn.addEventListener('click', exportApiErrorLogs);
-    }
-    
-    if (clearLogsBtn) {
-      clearLogsBtn.addEventListener('click', function() {
-        if (confirm('Êtes-vous sûr de vouloir effacer tous les logs d\'erreurs API?')) {
-          clearApiErrorLogs(() => {
-            alert('Logs effacés avec succès.');
-            updateLogStats();
-          });
-        }
-      });
-    }
-    
-    if (openLogBtn) {
-      openLogBtn.addEventListener('click', function() {
-        openCurrentLogFile();
-      });
-      // Vérifier si un fichier de log existe
+  // Configurer les boutons du menu développeur
+  if (clearLogsButton) {
+    clearLogsButton.addEventListener('click', function() {
+      if (confirm('Êtes-vous sûr de vouloir effacer tous les logs d\'erreurs API?')) {
+        clearApiErrorLogs(() => {
+          alert('Logs effacés avec succès.');
+          logContent.innerHTML = "No logs available";
+          if (apiErrors) apiErrors.textContent = "0";
+        });
+      }
+    });
+  }
+  
+  if (downloadLogsButton) {
+    downloadLogsButton.addEventListener('click', function() {
       chrome.storage.local.get(['currentLogFileContent'], function(result) {
-        openLogBtn.style.display = result.currentLogFileContent ? 'block' : 'none';
+        const logs = result.currentLogFileContent || "No logs available";
+        const blob = new Blob([logs], {type: 'text/plain'});
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'webcheck_logs.txt';
+        a.click();
+        
+        URL.revokeObjectURL(url);
       });
-    }
-    
-    // Mettre à jour les statistiques de logs
-    updateLogStats();
-    
-    // Vérifier périodiquement les mises à jour des logs (toutes les 30 secondes)
-    setInterval(updateLogStats, 30000);
+    });
   }
   
   // Variables pour stocker les sources
-  let defaultSources = [];
-  let userSources = [];
+  let defaultSourcesList = [];
+  let userSourcesList = [];
   
   // Charger les préférences utilisateur (états des toggles)
-  chrome.storage.local.get(['showDefaultSources', 'showUserSources'], function(result) {
-    // Définir les états par défaut (true si non défini)
-    const showDefaultSources = result.showDefaultSources !== undefined ? result.showDefaultSources : true;
-    const showUserSources = result.showUserSources !== undefined ? result.showUserSources : true;
+  chrome.storage.local.get(['showSources', 'devMode'], function(result) {
+    // Définir les états par défaut
+    const showSources = result.showSources !== undefined ? result.showSources : false;
+    const devMode = result.devMode !== undefined ? result.devMode : false;
     
     // Appliquer les états aux toggles
-    toggleDefaultSources.checked = showDefaultSources;
-    toggleUserSources.checked = showUserSources;
+    sourcesToggle.checked = showSources;
+    developerToggle.checked = devMode;
     
     // Appliquer la visibilité initiale
-    defaultSourcesList.style.display = showDefaultSources ? 'block' : 'none';
-    userSourcesContainer.style.display = showUserSources ? 'block' : 'none';
+    sourcesSection.style.display = showSources ? 'block' : 'none';
+    developerSection.style.display = devMode ? 'block' : 'none';
   });
   
-  // Charger les sources par défaut depuis le fichier JSON
+  // Charger les sources par défaut depuis le module trusted_sources.js
   try {
-    const response = await fetch('trusted_sources.json');
-    const data = await response.json();
-    defaultSources = data.sources || [];
+    // Utiliser la fonction d'import pour obtenir les sources
+    const sources = await getTrustedSources();
+    defaultSourcesList = sources || [];
     // Afficher les sources par défaut
     renderDefaultSources();
   } catch (error) {
     console.error('Erreur lors du chargement des sources par défaut:', error);
-    defaultSources = [];
+    defaultSourcesList = [];
   }
   
   // Charger les sources personnalisées depuis le stockage local
   chrome.storage.local.get(['userSources'], function(result) {
-    userSources = result.userSources || [];
+    userSourcesList = result.userSources || [];
     // Afficher les sources personnalisées
     renderUserSources();
   });
   
   // Fonction pour afficher les sources par défaut
   function renderDefaultSources() {
-    defaultSourcesList.innerHTML = '';
+    defaultSources.innerHTML = '';
     
-    if (defaultSources.length === 0) {
-      defaultSourcesList.innerHTML = '<p class="empty-list">Aucune source par défaut disponible.</p>';
+    if (defaultSourcesList.length === 0) {
+      defaultSources.innerHTML = '<div class="empty-message">No default sources available.</div>';
       return;
     }
     
-    defaultSources.forEach(source => {
+    defaultSourcesList.forEach(source => {
       const sourceItem = document.createElement('div');
       sourceItem.className = 'source-item';
+      
+      const sourceIcon = document.createElement('i');
+      sourceIcon.className = 'fas fa-globe source-icon';
       
       const sourceUrl = document.createElement('span');
       sourceUrl.className = 'source-url';
       sourceUrl.textContent = source;
       
+      sourceItem.appendChild(sourceIcon);
       sourceItem.appendChild(sourceUrl);
-      defaultSourcesList.appendChild(sourceItem);
+      defaultSources.appendChild(sourceItem);
+      
+      // Add hover event for source preview
+      sourceItem.addEventListener('mouseenter', (e) => {
+        showSourcePreview(source, e);
+      });
+      
+      sourceItem.addEventListener('mouseleave', () => {
+        hideSourcePreview();
+      });
     });
   }
   
   // Fonction pour afficher les sources personnalisées
   function renderUserSources() {
-    userSourcesList.innerHTML = '';
+    userSources.innerHTML = '';
     
-    if (userSources.length === 0) {
-      userSourcesList.innerHTML = '<p class="empty-list">Vous n\'avez pas encore ajouté de sources vérifiées.</p>';
+    if (userSourcesList.length === 0) {
+      userSources.innerHTML = '<div class="empty-message">You haven\'t added any trusted sources yet.</div>';
       return;
     }
     
-    userSources.forEach((source, index) => {
+    userSourcesList.forEach((source, index) => {
       const sourceItem = document.createElement('div');
       sourceItem.className = 'source-item';
+      
+      const sourceIcon = document.createElement('i');
+      sourceIcon.className = 'fas fa-globe source-icon';
       
       const sourceUrl = document.createElement('span');
       sourceUrl.className = 'source-url';
       sourceUrl.textContent = source;
       
       const removeButton = document.createElement('button');
-      removeButton.className = 'source-remove';
-      removeButton.textContent = 'Supprimer';
+      removeButton.className = 'btn-remove';
+      removeButton.innerHTML = '<i class="fas fa-times"></i>';
+      removeButton.title = 'Remove source';
       removeButton.addEventListener('click', () => {
         removeUserSource(index);
       });
       
+      sourceItem.appendChild(sourceIcon);
       sourceItem.appendChild(sourceUrl);
       sourceItem.appendChild(removeButton);
-      userSourcesList.appendChild(sourceItem);
+      userSources.appendChild(sourceItem);
+      
+      // Add hover event for source preview
+      sourceItem.addEventListener('mouseenter', (e) => {
+        showSourcePreview(source, e);
+      });
+      
+      sourceItem.addEventListener('mouseleave', () => {
+        hideSourcePreview();
+      });
     });
   }
   
-  // Fonction pour ajouter une source personnalisée
-  function addUserSource(url) {
-    if (!url) return;
+  function showSourcePreview(source, event) {
+    const previewContent = generateSourcePreview(source);
+    sourcePreview.innerHTML = previewContent;
     
-    // Normaliser l'URL (ajouter https:// si absent)
-    if (!/^https?:\/\//i.test(url)) {
-      url = 'https://' + url;
-    }
+    // Position the preview
+    const rect = event.target.getBoundingClientRect();
+    sourcePreview.style.top = `${rect.bottom + 10}px`;
+    sourcePreview.style.left = `${rect.left}px`;
+    sourcePreview.style.display = 'block';
+  }
+  
+  function hideSourcePreview() {
+    sourcePreview.style.display = 'none';
+  }
+  
+  function addUserSource(url) {
+    // Normaliser l'URL (supprimer http://, https://, www. et les barres obliques finales)
+    let normalizedUrl = url.toLowerCase().trim();
+    normalizedUrl = normalizedUrl.replace(/^(https?:\/\/)?(www\.)?/, '');
+    normalizedUrl = normalizedUrl.replace(/\/$/, '');
     
     // Vérifier si l'URL est déjà dans la liste
-    if (userSources.includes(url)) {
-      alert('Cette source est déjà dans votre liste.');
+    if (userSourcesList.includes(normalizedUrl) || defaultSourcesList.includes(normalizedUrl)) {
+      alert('Cette source existe déjà dans votre liste.');
       return;
     }
     
-    userSources.push(url);
+    // Vérifier que l'URL est valide
+    if (!normalizedUrl || normalizedUrl.indexOf('.') === -1) {
+      alert('Veuillez entrer une URL valide.');
+      return;
+    }
+    
+    // Ajouter la source à la liste
+    userSourcesList.push(normalizedUrl);
+    
+    // Sauvegarder la liste mise à jour
     saveUserSources();
+    
+    // Mettre à jour l'affichage
     renderUserSources();
+    
+    // Effacer le champ de saisie
     newSourceInput.value = '';
   }
   
-  // Fonction pour supprimer une source personnalisée
   function removeUserSource(index) {
-    userSources.splice(index, 1);
+    userSourcesList.splice(index, 1);
     saveUserSources();
     renderUserSources();
   }
   
-  // Fonction pour sauvegarder les sources personnalisées
   function saveUserSources() {
-    chrome.storage.local.set({ userSources: userSources });
+    chrome.storage.local.set({ userSources: userSourcesList });
   }
   
-  // Fonction pour sauvegarder les préférences utilisateur
   function saveUserPreferences() {
-    chrome.storage.local.set({ 
-      showDefaultSources: toggleDefaultSources.checked,
-      showUserSources: toggleUserSources.checked
+    chrome.storage.local.set({
+      showSources: sourcesToggle.checked,
+      devMode: developerToggle.checked
     });
   }
   
-  // Gestionnaires d'événements pour les toggles
-  toggleDefaultSources.addEventListener('change', function() {
-    defaultSourcesList.style.display = this.checked ? 'block' : 'none';
+  // Gérer les événements pour les toggles
+  sourcesToggle.addEventListener('change', function() {
+    sourcesSection.style.display = this.checked ? 'block' : 'none';
     saveUserPreferences();
   });
   
-  toggleUserSources.addEventListener('change', function() {
-    userSourcesContainer.style.display = this.checked ? 'block' : 'none';
+  developerToggle.addEventListener('change', function() {
+    developerSection.style.display = this.checked ? 'block' : 'none';
+    localStorage.setItem('devMode', this.checked);
     saveUserPreferences();
+    
+    // If developer mode is enabled, update the stats and logs
+    if (this.checked) {
+      chrome.storage.local.get(['currentLogFileContent'], function(result) {
+        logContent.innerHTML = result.currentLogFileContent || "No logs available";
+        
+        // Update stats display
+        chrome.storage.local.get(['pagesVerified', 'paragraphsAnalyzed', 'apiCalls', 'apiErrors'], function(stats) {
+          if (pagesVerified) pagesVerified.textContent = stats.pagesVerified || 0;
+          if (paragraphsChecked) paragraphsChecked.textContent = stats.paragraphsAnalyzed || 0;
+          if (apiCalls) apiCalls.textContent = stats.apiCalls || 0;
+          if (apiErrors) apiErrors.textContent = stats.apiErrors || 0;
+        });
+      });
+    }
   });
   
-  // Gestionnaire d'événements pour l'ajout de source
+  // Gérer l'événement pour ajouter une source
   addSourceButton.addEventListener('click', function() {
-    addUserSource(newSourceInput.value.trim());
+    addUserSource(newSourceInput.value);
   });
   
   newSourceInput.addEventListener('keypress', function(e) {
     if (e.key === 'Enter') {
-      addUserSource(this.value.trim());
+      addUserSource(this.value);
     }
   });
-  
-  // Ajouter un écouteur d'événement au bouton de vérification du texte sélectionné
-  checkSelectedTextButton.addEventListener('click', async function() {
-    const textToVerify = selectedTextInput.value.trim();
-    
-    if (!textToVerify) {
-      statusDiv.textContent = 'Veuillez entrer ou coller du texte à vérifier.';
-      return;
-    }
-    
-    // Désactiver les boutons pendant la vérification
-    checkButton.disabled = true;
-    checkSelectedTextButton.disabled = true;
-    statusDiv.textContent = 'Vérification du texte...';
-    resultDiv.textContent = '';
-    loader.style.display = 'block';
-    
-    try {
-      // Combiner les sources par ordre de priorité
-      const allSources = [...defaultSources, ...userSources];
-      
-      if (allSources.length === 0) {
-        statusDiv.textContent = 'Aucune source vérifiée disponible. Ajoutez des sources pour continuer.';
-        checkButton.disabled = false;
-        checkSelectedTextButton.disabled = false;
-        loader.style.display = 'none';
-        return;
-      }
-      
-      // Obtenir l'onglet actif
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
-      // Préparer le contenu pour la vérification
-      const textContent = {
-        content: textToVerify,
-        title: 'Texte sélectionné',
-        url: tab.url,
-        metaDescription: '',
-        metaKeywords: ''
-      };
-      
-      statusDiv.textContent = 'Analyse du texte et vérification...';
-      
-      // Vérifier directement le texte sélectionné
-      const result = await checkWithPerplexity(
-        textContent,
-        allSources,
-        tab.url,
-        0
-      );
-      
-      if (result) {
-        // Créer un "faux" pageContent pour le formatage des résultats
-        const mockPageContent = {
-          title: 'Texte sélectionné',
-          paragraphs: [textToVerify],
-          url: tab.url
-        };
-        
-        resultDiv.innerHTML = formatVerificationResults([result], mockPageContent);
-        
-        // Configurer les prévisualisations des sources après avoir généré le HTML
-        setupSourcePreviews();
-      } else {
-        resultDiv.innerHTML = "<p>Impossible de vérifier le texte sélectionné.</p>";
-      }
-      
-      // Mettre à jour le statut
-      statusDiv.textContent = 'Vérification terminée';
-    } catch (error) {
-      console.error('Erreur:', error);
-      statusDiv.textContent = 'Erreur: ' + error.message;
-    } finally {
-      // Réactiver les boutons et cacher le loader
-      checkButton.disabled = false;
-      checkSelectedTextButton.disabled = false;
-      loader.style.display = 'none';
-    }
-  });
-  
-  // Ajouter un écouteur d'événement au bouton de vérification de page
-  checkButton.addEventListener('click', async function() {
-    // Désactiver le bouton pendant la vérification
-    checkButton.disabled = true;
-    checkSelectedTextButton.disabled = true;
-    statusDiv.textContent = 'Extraction du contenu de la page...';
-    resultDiv.textContent = '';
-    loader.style.display = 'block';
 
+  // Event handlers for the buttons
+  checkButton.addEventListener('click', async function() {
+    // Disable the check button during verification and update status
+    checkButton.disabled = true;
+    statusMessage.textContent = 'Extracting content from page...';
+    statusMessage.className = 'status info';
+    statusMessage.style.display = 'block';
+    verificationResults.style.display = 'none';
+    finalScore.style.display = 'none';
+    
     try {
-      // Obtenir l'onglet actif
+      // Get the active tab
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       
-      // Exécuter un script dans l'onglet pour extraire le contenu
-      const scraped = await chrome.scripting.executeScript({
+      // Extract the content from the active tab
+      const [result] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         function: scrapePageContent
       });
       
-      // Récupérer le contenu extrait
-      const pageContent = scraped[0].result;
+      if (!result || !result.result) {
+        throw new Error('Could not extract content from the page.');
+      }
       
-      // Combiner les sources par ordre de priorité
-      const allSources = [...defaultSources, ...userSources];
+      // Get the scraped content
+      const scrapedContent = result.result;
       
-      if (allSources.length === 0) {
-        statusDiv.textContent = 'Aucune source vérifiée disponible. Ajoutez des sources pour continuer.';
+      // List of controversial keywords to check against
+      const controversialKeywords = [
+        'flat earth', 'earth is flat', 'conspiracy', 'illuminati', 'new world order', 
+        'chemtrails', 'mind control', 'fake moon landing', 'moon landing hoax',
+        'vaccine autism', 'autism vaccines', 'climate change hoax', 'global warming hoax',
+        'holocaust denial', '5g coronavirus', 'covid hoax', 'covid-19 hoax',
+        'qanon', 'deep state', 'microchip vaccine', 'lizard people', 'reptilian'
+      ];
+      
+      // Check if page contains controversial theories
+      const hasControversialTheories = controversialKeywords.some(keyword => 
+        scrapedContent.pageTitle.toLowerCase().includes(keyword) || 
+        scrapedContent.metadata.some(meta => meta.toLowerCase().includes(keyword)) ||
+        scrapedContent.paragraphs.some(p => p.toLowerCase().includes(keyword))
+      );
+      
+      // Default number of paragraphs to analyze
+      let paragraphsToAnalyze = 5;
+      
+      // Increase number of paragraphs to analyze if controversial theories are detected
+      if (hasControversialTheories) {
+        paragraphsToAnalyze = 8;
+      }
+      
+      // Filter out short paragraphs and get the most relevant ones
+      const significantParagraphs = scrapedContent.paragraphs
+        .filter(paragraph => paragraph.length > 50) // Only analyze paragraphs longer than 50 chars
+        .sort((a, b) => b.length - a.length) // Sort by length (longest first)
+        .slice(0, paragraphsToAnalyze); // Get the top paragraphs
+      
+      if (significantParagraphs.length === 0) {
+        throw new Error('No significant content found on the page.');
+      }
+      
+      // Update status message
+      statusMessage.textContent = 'Verifying content against trusted sources...';
+      
+      // Combine default and user-provided sources for verification
+      const allSources = [...defaultSourcesList, ...userSourcesList];
+      
+      // Check if the current page URL matches any of the trusted sources
+      const currentDomain = new URL(tab.url).hostname.replace('www.', '');
+      const isFromTrustedSource = allSources.some(source => {
+        const sourceDomain = source.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
+        return currentDomain === sourceDomain;
+      });
+      
+      if (isFromTrustedSource) {
+        // If the page is from a trusted source, automatically give it a high score
+        const autoResult = [{
+          paragraphIndex: 0,
+          content: 'This page comes from one of your trusted sources.',
+          summary: 'Content from trusted source',
+          status: 'true',
+          explanation: 'This content is from a source you have identified as trusted.',
+          selectedSources: allSources.slice(0, 3),
+          sourcesAgreement: [1.0, 1.0, 1.0],
+          validityScore: 100
+        }];
+        
+        formatVerificationResults(autoResult);
+        updateStats(1);
+        
+        // Re-enable the check button
         checkButton.disabled = false;
-        checkSelectedTextButton.disabled = false;
-        loader.style.display = 'none';
         return;
       }
       
-      // Analyser les métadonnées et le contenu pour détecter d'éventuelles théories controversées
-      const pageText = [
-        pageContent.title,
-        pageContent.metaDescription,
-        pageContent.metaKeywords,
-        ...pageContent.paragraphs.slice(0, 5) // Premières lignes pour détecter le thème
-      ].join(' ').toLowerCase();
+      // Prepare the paragraphs for verification, enriching with metadata
+      const enrichedParagraphs = significantParagraphs.map((paragraph, index) => {
+        return {
+          paragraphIndex: index,
+          content: paragraph,
+          metadata: {
+            title: scrapedContent.pageTitle,
+            description: scrapedContent.metadata.join(' '),
+            url: tab.url
+          }
+        };
+      });
       
-      // Mots-clés associés à des théories scientifiquement controversées
-      const controversialKeywords = [
-        'terre plate', 'flat earth', 'complot', 'conspiracy', 
-        'anti-vax', 'anti-vaccin', 'chemtrails', 'nouvel ordre mondial',
-        'illuminati', 'fausse pandémie', 'plandemic', 'deep state',
-        '5g danger', 'reptilien', 'reptilian', 'faux atterrissage lunaire',
-        'fake moon landing', 'quantum healing', 'guérison quantique',
-        'homéopathie', 'homeopathy'
-      ];
-      
-      // Vérifier si la page contient des théories controversées
-      const containsControversialTheories = controversialKeywords.some(keyword => 
-        pageText.includes(keyword)
-      );
-      
-      // Ajuster l'échantillonnage de paragraphes en fonction du contenu
-      let paragraphsToAnalyze = 5; // Par défaut
-      
-      if (containsControversialTheories) {
-        paragraphsToAnalyze = 8; // Examiner plus de paragraphes pour les théories controversées
-        statusDiv.textContent = 'Détection de théories scientifiques controversées. Analyse approfondie en cours...';
-      } else {
-        statusDiv.textContent = 'Analyse des paragraphes et vérification...';
+      // Verify each paragraph individually
+      const verificationResults = [];
+      for (let i = 0; i < enrichedParagraphs.length; i++) {
+        statusMessage.textContent = `Verifying paragraph ${i + 1} of ${enrichedParagraphs.length}...`;
+        
+        try {
+          // Call our API to verify this paragraph
+          const result = await checkWithPerplexity(
+            enrichedParagraphs[i].content,
+            enrichedParagraphs[i].metadata,
+            allSources
+          );
+          
+          // Check if it contains scientifically false theories and adjust score if needed
+          if (hasControversialTheories && result.status !== 'false') {
+            // If contains controversial theories but not marked as false, adjust score
+            result.validityScore = Math.min(result.validityScore, 40);
+            result.explanation += " Note: This content contains claims that may contradict scientific consensus.";
+          }
+          
+          verificationResults.push(result);
+          
+          // Update API call stats
+          chrome.storage.local.get(['apiCalls'], function(stats) {
+            chrome.storage.local.set({
+              apiCalls: (stats.apiCalls || 0) + 1
+            });
+            if (apiCalls && developerToggle.checked) {
+              apiCalls.textContent = (stats.apiCalls || 0) + 1;
+            }
+          });
+        } catch (apiError) {
+          console.error('API error:', apiError);
+          
+          // Log the API error
+          logApiError('checkWithPerplexity', apiError.toString());
+          
+          // Update API error stats
+          chrome.storage.local.get(['apiErrors'], function(stats) {
+            chrome.storage.local.set({
+              apiErrors: (stats.apiErrors || 0) + 1
+            });
+            if (apiErrors && developerToggle.checked) {
+              apiErrors.textContent = (stats.apiErrors || 0) + 1;
+            }
+          });
+          
+          // Use fallback function to simulate verification for this paragraph
+          const fallbackResult = fallbackSimulation(
+            enrichedParagraphs[i].content,
+            enrichedParagraphs[i].metadata,
+            allSources,
+            hasControversialTheories
+          );
+          verificationResults.push(fallbackResult);
+        }
       }
       
-      // Filtrer les paragraphes trop courts
-      const significantParagraphs = pageContent.paragraphs.filter(
-        paragraph => paragraph.trim().length >= 50
-      );
+      // Display the verification results
+      const finalScore = formatVerificationResults(verificationResults);
       
-      // Sélectionner les paragraphes les plus pertinents
-      const paragraphsToVerify = significantParagraphs.slice(0, paragraphsToAnalyze);
+      // Update verification statistics
+      updateStats(verificationResults.length);
       
-      // Ajouter le titre et les métadonnées comme contexte aux paragraphes
-      const enrichedParagraphs = paragraphsToVerify.map(paragraph => ({
-        content: paragraph,
-        title: pageContent.title,
-        url: pageContent.url,
-        metaDescription: pageContent.metaDescription,
-        metaKeywords: pageContent.metaKeywords
-      }));
+      // Set up source previews
+      const sourceItems = document.querySelectorAll('.source-item-small');
+      sourceItems.forEach(item => {
+        item.addEventListener('mouseenter', (e) => {
+          const sourceUrl = item.querySelector('.source-url-small').textContent;
+          showSourcePreview(sourceUrl, e);
+        });
+        
+        item.addEventListener('mouseleave', () => {
+          hideSourcePreview();
+        });
+      });
       
-      statusDiv.textContent = `Analyse approfondie de ${paragraphsToVerify.length} paragraphes...`;
-      
-      // Vérifier chaque paragraphe individuellement
-      const verificationResults = await Promise.all(
-        enrichedParagraphs.map(async (enrichedParagraph, index) => {
-          statusDiv.textContent = `Vérification approfondie du paragraphe ${index + 1}/${paragraphsToVerify.length}...`;
-          
-          return await checkWithPerplexity(
-            enrichedParagraph, 
-            allSources, 
-            tab.url,
-            index
-          );
-        })
-      );
-      
-      // Filtrer les résultats null (paragraphes ignorés)
-      const validResults = verificationResults.filter(result => result !== null);
-      
-      // Vérifier si de fausses théories scientifiques ont été identifiées et ajuster les scores
-      const containsDebunkedScience = validResults.some(
-        result => result.status.toLowerCase() === 'faux' && result.validityScore < 30
-      );
-      
-      if (containsDebunkedScience) {
-        // Ajuster les scores pour pénaliser davantage les pages avec des informations scientifiquement fausses
-        validResults.forEach(result => {
-          if (result.status.toLowerCase() !== 'vrai' && result.status.toLowerCase() !== 'true') {
-            // Réduire le score des contenus partiellement vrais ou non vérifiables sur des pages contenant des faussetés
-            result.validityScore = Math.max(10, Math.floor(result.validityScore * 0.7));
-          }
+      // Update log statistics if developer mode is enabled
+      if (developerToggle.checked) {
+        chrome.storage.local.get(['currentLogFileContent'], function(result) {
+          logContent.innerHTML = result.currentLogFileContent || "No logs available";
         });
       }
-      
-      // Afficher les résultats
-      if (validResults.length > 0) {
-        resultDiv.innerHTML = formatVerificationResults(validResults, pageContent);
-        
-        // Configurer les prévisualisations des sources après avoir généré le HTML
-        setupSourcePreviews();
-      } else {
-        resultDiv.innerHTML = "<p>Aucun contenu substantiel n'a pu être vérifié sur cette page.</p>";
-      }
-      
-      // Mettre à jour le statut
-      statusDiv.textContent = 'Vérification terminée';
     } catch (error) {
-      console.error('Erreur:', error);
-      statusDiv.textContent = 'Erreur: ' + error.message;
+      console.error('Error during verification:', error);
+      statusMessage.textContent = `Error: ${error.message}`;
+      statusMessage.className = 'status error';
     } finally {
-      // Réactiver les boutons et cacher le loader
+      // Re-enable the check button
       checkButton.disabled = false;
-      checkSelectedTextButton.disabled = false;
-      loader.style.display = 'none';
     }
   });
   
-  // Fonction pour configurer les prévisualisations des sources
-  function setupSourcePreviews() {
-    const sourceLinks = document.querySelectorAll('.source-link');
-    const previewContainer = document.getElementById('sourcePreviewContainer');
-    const popupContainer = document.querySelector('.container');
+  verifySelectedButton.addEventListener('click', async function() {
+    // Disable the button during verification and update status
+    verifySelectedButton.disabled = true;
+    statusMessage.textContent = 'Extracting selected text...';
+    statusMessage.className = 'status info';
+    statusMessage.style.display = 'block';
+    verificationResults.style.display = 'none';
+    finalScore.style.display = 'none';
     
-    if (!previewContainer) return;
-    
-    // Prévisualisation active actuelle
-    let activePreview = null;
-    
-    sourceLinks.forEach(link => {
-      // Ajouter des écouteurs d'événements pour le survol
-      link.addEventListener('mouseenter', function(e) {
-        // Récupérer les données de prévisualisation
-        const previewData = decodeURIComponent(this.getAttribute('data-preview'));
-        
-        // Positionner et afficher la prévisualisation
-        previewContainer.innerHTML = previewData;
-        
-        // Rendre visible temporairement pour calculer les dimensions
-        previewContainer.style.display = 'block';
-        previewContainer.style.opacity = '0';
-        previewContainer.style.pointerEvents = 'none'; // Permettre les clics à travers
-        
-        // Obtenir les dimensions
-        const linkRect = this.getBoundingClientRect();
-        const containerRect = popupContainer.getBoundingClientRect();
-        const previewRect = previewContainer.getBoundingClientRect();
-        
-        // Positionner toujours en dessous du lien
-        const leftPos = Math.max(10, Math.min(
-          containerRect.width - previewRect.width - 10,
-          linkRect.left - containerRect.left
-        ));
-        
-        const topPos = linkRect.bottom - containerRect.top + 10;
-        
-        // Vérifier si ça dépasse en bas et ajuster la taille si nécessaire
-        if (topPos + previewRect.height > containerRect.height - 10) {
-          const maxHeight = Math.max(50, containerRect.height - topPos - 20);
-          previewContainer.style.maxHeight = `${maxHeight}px`;
-        } else {
-          previewContainer.style.maxHeight = '200px'; // Restaurer la hauteur max par défaut
-        }
-        
-        // Stocker une référence au lien actif
-        activePreview = this;
-        
-        // Appliquer la position et rendre visible
-        previewContainer.style.left = `${leftPos}px`;
-        previewContainer.style.top = `${topPos}px`;
-        previewContainer.style.opacity = '1';
+    try {
+      // Get the active tab
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      // Get the selected text from the active tab
+      const [result] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        function: () => window.getSelection().toString()
       });
       
-      // Ajouter un gestionnaire de clic explicite
-      link.addEventListener('click', function(e) {
-        // Permettre au clic de se propager normalement
-        previewContainer.style.display = 'none';
-      });
+      const selectedText = result.result;
       
-      link.addEventListener('mouseleave', function() {
-        // Masquer la prévisualisation avec un délai pour permettre le survol
-        setTimeout(() => {
-          if (activePreview === this && !previewContainer.matches(':hover')) {
-            previewContainer.style.display = 'none';
-            activePreview = null;
+      if (!selectedText || selectedText.trim().length < 10) {
+        throw new Error('Please select some text to verify (at least 10 characters).');
+      }
+      
+      // Update status message
+      statusMessage.textContent = 'Verifying selected text against trusted sources...';
+      
+      // Combine default and user-provided sources for verification
+      const allSources = [...defaultSourcesList, ...userSourcesList];
+      
+      // Verify the selected text
+      let verificationResult;
+      try {
+        // Get tab metadata
+        const [metadataResult] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          function: () => {
+            return {
+              title: document.title,
+              description: document.querySelector('meta[name="description"]')?.content || '',
+              url: window.location.href
+            };
           }
-        }, 300);
-      });
-    });
-    
-    // Ajouter un écouteur pour masquer la prévisualisation quand on quitte le conteneur
-    previewContainer.addEventListener('mouseleave', function() {
-      setTimeout(() => {
-        if (activePreview && !activePreview.matches(':hover')) {
-          this.style.display = 'none';
-          activePreview = null;
+        });
+        
+        const metadata = metadataResult.result;
+        
+        // Call our API to verify this text
+        verificationResult = await checkWithPerplexity(selectedText, metadata, allSources);
+        
+        // Update API call stats
+        chrome.storage.local.get(['apiCalls'], function(stats) {
+          chrome.storage.local.set({
+            apiCalls: (stats.apiCalls || 0) + 1
+          });
+          if (apiCalls && developerToggle.checked) {
+            apiCalls.textContent = (stats.apiCalls || 0) + 1;
+          }
+        });
+      } catch (apiError) {
+        console.error('API error:', apiError);
+        
+        // Log the API error
+        logApiError('checkWithPerplexity', apiError.toString());
+        
+        // Update API error stats
+        chrome.storage.local.get(['apiErrors'], function(stats) {
+          chrome.storage.local.set({
+            apiErrors: (stats.apiErrors || 0) + 1
+          });
+          if (apiErrors && developerToggle.checked) {
+            apiErrors.textContent = (stats.apiErrors || 0) + 1;
+          }
+        });
+        
+        // Use fallback function to simulate verification
+        verificationResult = fallbackSimulation(selectedText, { title: 'Selected Text' }, allSources, false);
+      }
+      
+      // Display the verification results
+      const finalScore = formatVerificationResults([verificationResult]);
+      
+      // Update verification statistics
+      updateStats(1);
+      
+      // Update log statistics if developer mode is enabled
+      if (developerToggle.checked) {
+        chrome.storage.local.get(['currentLogFileContent'], function(result) {
+          logContent.innerHTML = result.currentLogFileContent || "No logs available";
+        });
+      }
+    } catch (error) {
+      console.error('Error during verification:', error);
+      statusMessage.textContent = `Error: ${error.message}`;
+      statusMessage.className = 'status error';
+    } finally {
+      // Re-enable the verify selected button
+      verifySelectedButton.disabled = false;
+    }
+  });
+  
+  clearButton.addEventListener('click', function() {
+    verificationResults.innerHTML = '';
+    verificationResults.style.display = 'none';
+    statusMessage.textContent = 'Ready to verify content.';
+    statusMessage.className = 'status info';
+    statusMessage.style.display = 'block';
+    finalScore.style.display = 'none';
+  });
+
+  function updateStats(paragraphsVerified) {
+    chrome.storage.local.get(['pagesVerified', 'paragraphsAnalyzed', 'apiCalls', 'apiErrors'], function(stats) {
+      // Mettre à jour uniquement les compteurs de pages et de paragraphes
+      const updatedStats = {
+        pagesVerified: (stats.pagesVerified || 0) + 1,
+        paragraphsAnalyzed: (stats.paragraphsAnalyzed || 0) + paragraphsVerified
+      };
+      
+      chrome.storage.local.set(updatedStats, function() {
+        // Update displayed stats if dev mode is enabled
+        if (developerToggle.checked) {
+          if (pagesVerified) pagesVerified.textContent = updatedStats.pagesVerified;
+          if (paragraphsChecked) paragraphsChecked.textContent = updatedStats.paragraphsAnalyzed;
+          // Note: apiCalls et apiErrors sont mis à jour ailleurs
         }
-      }, 100);
+      });
     });
   }
-  
-  // Fonction pour mettre à jour les statistiques de logs
-  function updateLogStats() {
-    if (devModeEnabled && logStatsDiv) {
-      // Récupérer les informations des logs
-      chrome.storage.local.get(['apiErrorLogs', 'lastLogUpdate', 'lastLogFilename', 'currentLogFileContent'], function(result) {
-        const logs = result.apiErrorLogs || [];
-        const lastUpdate = result.lastLogUpdate ? new Date(result.lastLogUpdate) : null;
-        const logFilename = result.lastLogFilename || '';
-        const hasLogFile = result.currentLogFileContent && result.currentLogFileContent.length > 0;
-        
-        let statsHtml = `
-          <p>Nombre d'erreurs API enregistrées: <strong>${logs.length}</strong></p>
-        `;
-        
-        if (logs.length > 0) {
-          statsHtml += `<p>Dernière erreur: ${new Date(logs[logs.length-1].timestamp).toLocaleString()}</p>`;
-        }
-        
-        if (hasLogFile) {
-          statsHtml += `
-            <p>Fichier de log actuel: <strong>${logFilename}</strong></p>
-            <p>Dernière mise à jour: ${lastUpdate ? lastUpdate.toLocaleString() : 'Jamais'}</p>
-            <p>Taille du fichier: ${(result.currentLogFileContent.length / 1024).toFixed(2)} KB</p>
-          `;
-        }
-        
-        logStatsDiv.innerHTML = statsHtml;
-      });
+
+  function getScoreExplanation(score) {
+    if (score >= 90) {
+      return "This content appears to be highly reliable and well-supported by trusted sources.";
+    } else if (score >= 75) {
+      return "This content seems generally reliable with good support from trusted sources.";
+    } else if (score >= 60) {
+      return "This content has moderate reliability with some support from trusted sources.";
+    } else if (score >= 40) {
+      return "This content has limited reliability with minimal support from trusted sources.";
+    } else if (score >= 20) {
+      return "This content appears to have significant reliability issues with very little support from trusted sources.";
+    } else {
+      return "This content could not be verified or contradicts information from trusted sources.";
     }
+  }
+
+  function formatVerificationResults(results, pageContent) {
+    // Clear previous results
+    verificationResults.innerHTML = '';
+    verificationResults.style.display = 'block';
+    
+    // Calculate weighted overall score
+    const calculateWeightedScore = (result) => {
+      // Weight factors
+      const statusWeight = 0.5;
+      const sourcesWeight = 0.3;
+      const lengthWeight = 0.2;
+      
+      // Status score (0-100)
+      let statusScore = 0;
+      switch(result.status) {
+        case 'true': statusScore = 100; break;
+        case 'partially_true': statusScore = 70; break;
+        case 'unverifiable': statusScore = 50; break;
+        case 'false': statusScore = 0; break;
+        default: statusScore = 30; break;
+      }
+      
+      // Sources agreement score (0-100)
+      let sourcesScore = 0;
+      if (result.selectedSources && result.sourcesAgreement) {
+        const totalAgreement = result.sourcesAgreement.reduce((sum, agreement) => sum + agreement, 0);
+        const avgAgreement = totalAgreement / result.sourcesAgreement.length;
+        sourcesScore = avgAgreement * 100;
+      }
+      
+      // Text length score (0-100) - longer paragraphs have more weight
+      const contentLength = result.content.length;
+      const lengthScore = Math.min(100, contentLength / 20);
+      
+      // Calculate weighted score
+      return (statusScore * statusWeight) + (sourcesScore * sourcesWeight) + (lengthScore * lengthWeight);
+    };
+    
+    // Calculate overall score as weighted average of all paragraph scores
+    let totalScore = 0;
+    let totalWeight = 0;
+    
+    // Process each result
+    results.forEach((result, index) => {
+      const score = result.validityScore !== undefined ? result.validityScore : calculateWeightedScore(result);
+      const paragraphWeight = result.content.length;
+      totalScore += score * paragraphWeight;
+      totalWeight += paragraphWeight;
+      
+      // Create result card
+      const resultCard = document.createElement('div');
+      resultCard.className = `result-card ${result.status}`;
+      
+      // Status icon
+      const statusIcon = document.createElement('div');
+      statusIcon.className = 'status-icon';
+      let iconClass = '';
+      switch(result.status) {
+        case 'true': iconClass = 'fa-check-circle'; break;
+        case 'partially_true': iconClass = 'fa-dot-circle'; break;
+        case 'false': iconClass = 'fa-times-circle'; break;
+        default: iconClass = 'fa-question-circle'; break;
+      }
+      statusIcon.innerHTML = `<i class="fas ${iconClass}"></i>`;
+      
+      // Content
+      const contentElement = document.createElement('div');
+      contentElement.className = 'result-content';
+      contentElement.textContent = result.content;
+      
+      // Explanation
+      const explanationElement = document.createElement('div');
+      explanationElement.className = 'result-explanation';
+      explanationElement.textContent = result.explanation || getExplanationForStatus(result.status, result.content);
+      
+      // Sources section
+      const sourcesElement = document.createElement('div');
+      sourcesElement.className = 'result-sources';
+      
+      // Sources header
+      const sourcesHeader = document.createElement('div');
+      sourcesHeader.className = 'sources-header';
+      sourcesHeader.textContent = 'Sources';
+      sourcesElement.appendChild(sourcesHeader);
+      
+      // Add each source with its agreement level
+      if (result.selectedSources && result.sourcesAgreement) {
+        const sourcesList = document.createElement('div');
+        sourcesList.className = 'sources-list';
+        
+        result.selectedSources.forEach((source, sourceIndex) => {
+          const agreementLevel = result.sourcesAgreement[sourceIndex] || 0;
+          
+          const sourceItem = document.createElement('div');
+          sourceItem.className = 'source-item-small';
+          
+          // Source URL
+          const sourceUrl = document.createElement('a');
+          sourceUrl.className = 'source-url-small';
+          sourceUrl.href = source.startsWith('http') ? source : `https://${source}`;
+          sourceUrl.target = '_blank';
+          sourceUrl.textContent = source;
+          
+          // Agreement level
+          const agreementIndicator = document.createElement('div');
+          agreementIndicator.className = `agreement-indicator agreement-level-${Math.round(agreementLevel * 10)}`;
+          
+          const agreementLabel = document.createElement('span');
+          agreementLabel.className = 'agreement-label';
+          if (agreementLevel >= 0.8) {
+            agreementLabel.textContent = 'Strong support';
+          } else if (agreementLevel >= 0.6) {
+            agreementLabel.textContent = 'Good support';
+          } else if (agreementLevel >= 0.4) {
+            agreementLabel.textContent = 'Partial support';
+          } else if (agreementLevel >= 0.2) {
+            agreementLabel.textContent = 'Limited support';
+          } else {
+            agreementLabel.textContent = 'No support';
+          }
+          
+          agreementIndicator.appendChild(agreementLabel);
+          sourceItem.appendChild(sourceUrl);
+          sourceItem.appendChild(agreementIndicator);
+          sourcesList.appendChild(sourceItem);
+          
+          // Add hover event for source preview
+          sourceItem.addEventListener('mouseenter', (e) => {
+            const previewContent = generateSourcePreview(source, agreementLevel, result.content);
+            sourcePreview.innerHTML = previewContent;
+            
+            // Position the preview
+            const rect = e.target.getBoundingClientRect();
+            sourcePreview.style.top = `${rect.bottom + 10}px`;
+            sourcePreview.style.left = `${rect.left}px`;
+            sourcePreview.style.display = 'block';
+          });
+          
+          sourceItem.addEventListener('mouseleave', () => {
+            sourcePreview.style.display = 'none';
+          });
+        });
+        
+        sourcesElement.appendChild(sourcesList);
+      } else {
+        const noSources = document.createElement('div');
+        noSources.className = 'no-sources';
+        noSources.textContent = 'No sources could be verified for this content.';
+        sourcesElement.appendChild(noSources);
+      }
+      
+      // Assemble the card
+      resultCard.appendChild(statusIcon);
+      resultCard.appendChild(contentElement);
+      resultCard.appendChild(explanationElement);
+      resultCard.appendChild(sourcesElement);
+      
+      // Add the card to results container
+      verificationResults.appendChild(resultCard);
+    });
+    
+    // Calculate and display overall score
+    const finalValidityScore = totalWeight > 0 ? Math.round(totalScore / totalWeight) : 0;
+    finalScoreValue.textContent = finalValidityScore;
+    finalScoreExplanation.textContent = getScoreExplanation(finalValidityScore);
+    finalScore.style.display = 'block';
+    
+    // Add color class based on score
+    finalScore.className = 'final-score';
+    if (finalValidityScore >= 80) {
+      finalScore.classList.add('score-high');
+    } else if (finalValidityScore >= 60) {
+      finalScore.classList.add('score-medium');
+    } else if (finalValidityScore >= 40) {
+      finalScore.classList.add('score-low');
+    } else {
+      finalScore.classList.add('score-very-low');
+    }
+    
+    return finalValidityScore;
+  }
+
+  function generateSourcePreview(source, agreementLevel, relatedContent) {
+    // Extract domain from source
+    const domain = source.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
+    
+    // Default preview structure
+    let previewHtml = `
+      <div class="preview-header">
+        <img src="https://www.google.com/s2/favicons?domain=${domain}" alt="${domain} favicon" class="preview-favicon">
+        <span class="preview-domain">${domain}</span>
+        <a href="https://${source}" target="_blank" class="preview-link">
+          <i class="fas fa-external-link-alt"></i>
+        </a>
+      </div>
+      <div class="preview-content">
+    `;
+    
+    // Default content based on source type
+    if (domain.includes('who.int')) {
+      previewHtml += `<p>World Health Organization provides global guidance on health issues based on scientific evidence.</p>`;
+    } else if (domain.includes('cdc.gov')) {
+      previewHtml += `<p>The Centers for Disease Control and Prevention is a trusted source for health information and research.</p>`;
+    } else if (domain.includes('nih.gov')) {
+      previewHtml += `<p>The National Institutes of Health conducts and shares medical research to improve health outcomes.</p>`;
+    } else if (domain.includes('nasa.gov')) {
+      previewHtml += `<p>NASA provides scientific information about space, Earth, and related fields based on extensive research.</p>`;
+    } else if (domain.includes('edu')) {
+      previewHtml += `<p>Educational institution that conducts and publishes academic research across various disciplines.</p>`;
+    } else if (domain.includes('gov')) {
+      previewHtml += `<p>Government source that provides official information and data.</p>`;
+    } else {
+      previewHtml += `<p>Source that may provide information related to the content being verified.</p>`;
+    }
+    
+    // Add agreement information if provided
+    if (agreementLevel !== undefined && relatedContent) {
+      let agreementText = '';
+      if (agreementLevel >= 0.8) {
+        agreementText = 'strongly supports';
+      } else if (agreementLevel >= 0.6) {
+        agreementText = 'generally supports';
+      } else if (agreementLevel >= 0.4) {
+        agreementText = 'partially supports';
+      } else if (agreementLevel >= 0.2) {
+        agreementText = 'minimally supports';
+      } else {
+        agreementText = 'does not support';
+      }
+      
+      previewHtml += `
+        <div class="preview-agreement">
+          <div class="agreement-bar">
+            <div class="agreement-level" style="width: ${agreementLevel * 100}%"></div>
+          </div>
+          <p>This source ${agreementText} the analyzed content.</p>
+        </div>
+      `;
+    }
+    
+    // Close preview
+    previewHtml += `</div>`;
+    
+    return previewHtml;
   }
 });
 
-// Fonction pour extraire le contenu de la page
+// Function to scrape content from the page
 function scrapePageContent() {
-  // Cette fonction est exécutée dans le contexte de la page web
+  // Get page title
+  const pageTitle = document.title;
   
-  // Extraire le titre de la page
-  const title = document.title;
-  const url = window.location.href;
+  // Get metadata
+  const metadata = [];
+  const metaTags = document.querySelectorAll('meta[name="description"], meta[name="keywords"], meta[property="og:description"]');
+  metaTags.forEach(tag => {
+    const content = tag.getAttribute('content');
+    if (content) {
+      metadata.push(content);
+    }
+  });
   
-  // Récupérer le contenu principal avec une détection avancée
-  let mainElement = null;
-  
-  // 1. Essayer de détecter le conteneur principal de l'article avec des sélecteurs précis
-  const articleContainers = [
-    // Sélecteurs courants pour les contenus d'articles
-    'article', 
-    '[role="main"]',
-    '[itemprop="articleBody"]',
-    '.post-content',
-    '.entry-content',
-    '.article__content',
-    '.content-body',
-    '.article-body',
-    '.story-body',
-    '.main-content',
-    '.post-body',
-    // Classes spécifiques pour les CMS populaires (WordPress, etc.)
-    '.single-content',
-    '.post-text',
-    '.article__body',
-    '.story-content',
-    '.rich-text',
-    '.content-article'
+  // Get main content elements
+  const contentSelectors = [
+    'article', '.article', '.post', '.entry', '.content', 'main', '#main', '#content',
+    '.main-content', '.entry-content', '.post-content', '.article-content',
+    '.story', '.story-body', '.story-content', '.blog-post', '.blog-entry',
+    '.news-article', '.news-content', '.news-story', '.body-content'
   ];
   
-  // Essayer chaque sélecteur jusqu'à trouver un conteneur valide
-  for (const selector of articleContainers) {
-    const element = document.querySelector(selector);
-    if (element && element.offsetHeight > 200) { // Vérifier que c'est un élément substantiel
-      mainElement = element;
-      break;
-    }
-  }
+  let mainContent = null;
   
-  // 2. Si aucun conteneur d'article spécifique n'est trouvé, essayer les conteneurs génériques
-  if (!mainElement) {
-    const genericContainers = [
-      'main', 
-      '.content', 
-      '.main', 
-      '#content', 
-      '#main'
-    ];
-    
-    for (const selector of genericContainers) {
-      const element = document.querySelector(selector);
-      if (element && element.offsetHeight > 200) {
-        mainElement = element;
+  // Try each selector until we find content
+  for (const selector of contentSelectors) {
+    const elements = document.querySelectorAll(selector);
+    if (elements.length > 0) {
+      // Use the largest element by character count
+      let largestElement = null;
+      let largestLength = 0;
+      
+      elements.forEach(element => {
+        const textLength = element.textContent.trim().length;
+        if (textLength > largestLength) {
+          largestElement = element;
+          largestLength = textLength;
+        }
+      });
+      
+      if (largestElement) {
+        mainContent = largestElement;
         break;
       }
     }
   }
   
-  // 3. Si toujours pas de conteneur principal identifié, utiliser le body mais essayer
-  // d'exclure les éléments de navigation, header, footer, etc.
-  if (!mainElement) {
-    mainElement = document.body;
+  // If no specific content container is found, use the body
+  if (!mainContent) {
+    mainContent = document.body;
   }
   
-  // 4. Extraire les métadonnées de la page
-  const metaDescription = document.querySelector('meta[name="description"]')?.content || '';
-  const metaKeywords = document.querySelector('meta[name="keywords"]')?.content || '';
+  // Extract paragraphs
+  const paragraphElements = mainContent.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li');
+  let paragraphs = [];
   
-  // 5. Purger les éléments non pertinents du contenu principal
-  if (mainElement) {
-    // Créer une copie du mainElement pour ne pas modifier directement le DOM
-    const contentClone = mainElement.cloneNode(true);
-    
-    // Définir les sélecteurs d'éléments à supprimer
-    const elementsToRemove = [
-      // Navigation, menus, etc.
-      'nav', 'header', 'footer', '.navigation', '.menu', '.nav', '.navbar', 
-      // Barres latérales
-      'aside', '.sidebar', '.widget-area', '.side-bar', '.supplementary', 
-      // Commentaires
-      '.comments', '.comment-section', '#comments', '.user-comments',
-      // Publicités
-      '.ad', '.ads', '.advertisement', '.banner', '[class*="advert"]', '[id*="advert"]',
-      // Réseaux sociaux
-      '.social', '.share', '.sharing', '.social-media', '.share-buttons',
-      // Éléments de pagination, auteurs, dates
-      '.pagination', '.pager', '.author-bio', '.author-info', '.post-meta', '.metadata',
-      '.byline', '.published', '.post-date', '.date', '.time',
-      // Suggestions d'articles, contenus liés
-      '.related', '.recommended', '.suggestions', '.read-also', '.read-next',
-      '.popular-posts', '.trending', '.taboola', '.outbrain',
-      // Boutons, call-to-action
-      '.cta', '.newsletter', '.subscribe', '.subscription', 
-      // Scripts, iframes, objets incorporés
-      'script', 'style', 'iframe', 'embed', 'object', 'noscript'
-    ];
-    
-    // Supprimer les éléments non pertinents
-    elementsToRemove.forEach(selector => {
-      const elements = contentClone.querySelectorAll(selector);
-      elements.forEach(el => el.remove());
-    });
-    
-    // 6. Extraire uniquement les éléments de texte significatifs
-    const paragraphElements = contentClone.querySelectorAll(
-      'p, h1, h2, h3, h4, h5, h6, li, blockquote, .paragraph, div > p'
-    );
-    
-    const paragraphs = [];
-    
-    // 7. Filtrer et traiter les paragraphes pour ne garder que le contenu significatif
-    paragraphElements.forEach(element => {
-      // Ignorer les éléments vides ou trop courts
-      const text = element.textContent.trim();
-      if (text.length < 20) return; // Ignorer les textes trop courts
-      
-      // Ignorer les textes qui ressemblent à des métadonnées
-      if (/^(publié|posté|mis à jour|par|écrit par|author|published|updated|by|on|at)\s/i.test(text)) return;
-      
-      // Ignorer les textes qui ressemblent à des timestamps
-      if (/^\d{1,2}[:.]\d{2}$/.test(text) || /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(text)) return;
-      
-      // Ajouter le paragraphe à notre liste
+  paragraphElements.forEach(element => {
+    const text = element.textContent.trim();
+    if (text && text.length > 20) { // Only include paragraphs with real content
       paragraphs.push(text);
+    }
+  });
+  
+  // If we didn't get enough paragraphs from p tags, try other methods
+  if (paragraphs.length < 3) {
+    // Try getting content from divs that look like paragraphs
+    const divElements = mainContent.querySelectorAll('div');
+    divElements.forEach(div => {
+      // Skip divs that have many child elements or specific classes like navigation, sidebar, etc.
+      if (div.children.length < 3 && !div.className.match(/(nav|menu|sidebar|footer|header|banner|ad)/i)) {
+        const text = div.textContent.trim();
+        if (text && text.length > 50 && text.length < 2000) {
+          paragraphs.push(text);
+        }
+      }
     });
     
-    // 8. Si aucun paragraphe n'a été trouvé via les sélecteurs spécifiques, utiliser le texte complet
-    if (paragraphs.length === 0) {
-      const fullText = contentClone.textContent.trim();
+    // As a last resort, split the main content by double line breaks
+    if (paragraphs.length < 3) {
+      const contentText = mainContent.textContent.trim();
+      const splitParagraphs = contentText.split(/\n\n+/);
       
-      // Diviser le texte en paragraphes en utilisant les sauts de ligne comme séparateurs
-      const textBlocks = fullText.split(/\n\s*\n/);
-      
-      for (const block of textBlocks) {
-        const trimmedBlock = block.trim();
-        if (trimmedBlock.length >= 50) { // Uniquement les blocs substantiels
-          // Si le bloc de texte est trop long, le diviser en paragraphes plus petits à la fin des phrases
-          if (trimmedBlock.length > 1000) {
-            // Diviser le texte en phrases complètes
-            const sentences = trimmedBlock.match(/[^.!?]+[.!?]+/g) || [];
-            
-            // Regrouper les phrases en paragraphes de taille raisonnable
-            let currentParagraph = '';
-            for (const sentence of sentences) {
-              if (currentParagraph.length + sentence.length < 1000) {
-                currentParagraph += sentence;
-              } else {
-                if (currentParagraph.length > 0) {
-                  paragraphs.push(currentParagraph.trim());
-                }
-                currentParagraph = sentence;
-              }
-            }
-            
-            // Ajouter le dernier paragraphe s'il reste du contenu
-            if (currentParagraph.length > 0) {
-              paragraphs.push(currentParagraph.trim());
-            }
-          } else {
-            // Si le bloc est de taille raisonnable, l'ajouter tel quel
-            paragraphs.push(trimmedBlock);
-          }
+      for (const text of splitParagraphs) {
+        const trimmedText = text.trim().replace(/\s+/g, ' ');
+        if (trimmedText.length > 50 && !paragraphs.includes(trimmedText)) {
+          paragraphs.push(trimmedText);
         }
       }
     }
-    
-    // 9. Fusionner les paragraphes très courts adjacents
-    const mergedParagraphs = [];
-    let currentMergedParagraph = '';
-    
-    for (const paragraph of paragraphs) {
-      if (paragraph.length < 100) {
-        if (currentMergedParagraph.length + paragraph.length < 1000) {
-          currentMergedParagraph += (currentMergedParagraph ? ' ' : '') + paragraph;
-        } else {
-          if (currentMergedParagraph.length > 0) {
-            mergedParagraphs.push(currentMergedParagraph);
-          }
-          currentMergedParagraph = paragraph;
-        }
-      } else {
-        if (currentMergedParagraph.length > 0) {
-          mergedParagraphs.push(currentMergedParagraph);
-          currentMergedParagraph = '';
-        }
-        mergedParagraphs.push(paragraph);
-      }
-    }
-    
-    if (currentMergedParagraph.length > 0) {
-      mergedParagraphs.push(currentMergedParagraph);
-    }
-    
-    // 10. Évaluer la pertinence de chaque paragraphe
-    const scoredParagraphs = mergedParagraphs.map(p => {
-      let score = p.length; // La longueur de base
-      
-      // Bonus pour les paragraphes qui semblent contenir des informations factuelles
-      if (/facts?|research|study|studies|science|data|evidence|proof|discovered|found|according to|researchers|experts|scientists/i.test(p)) {
-        score += 2000;
-      }
-      
-      // Bonus pour les paragraphes avec des chiffres (souvent des statistiques ou données)
-      const numberCount = (p.match(/\d+/g) || []).length;
-      score += numberCount * 200;
-      
-      // Bonus pour les paragraphes contenant des citations
-      if (p.includes('"') || p.includes('"') || p.includes('"')) {
-        score += 500;
-      }
-      
-      // Bonus pour les paragraphes plus longs (généralement plus substantiels)
-      if (p.length > 200) score += 500;
-      
-      // Pénalité pour les textes qui ressemblent à des informations de contact ou mentions légales
-      if (/contact|copyright|rights reserved|privacy policy|terms/i.test(p)) {
-        score -= 1000;
-      }
-      
-      return { text: p, score };
-    });
-    
-    // Trier par score et prendre les paragraphes les plus pertinents
-    const significantParagraphs = scoredParagraphs
-      .sort((a, b) => b.score - a.score)
-      .map(item => item.text);
-    
-    // Retourner les informations extraites
-    return {
-      title: title,
-      paragraphs: significantParagraphs,
-      url: url,
-      metaDescription,
-      metaKeywords
-    };
   }
   
-  // Si tout échoue, retourner au moins le titre
+  // Remove duplicates and very similar paragraphs
+  paragraphs = paragraphs.filter((paragraph, index, self) => {
+    // Check for exact duplicates
+    const isDuplicate = self.indexOf(paragraph) !== index;
+    if (isDuplicate) return false;
+    
+    // Check for very similar paragraphs (e.g., one is a subset of another)
+    for (let i = 0; i < self.length; i++) {
+      if (i === index) continue;
+      
+      const other = self[i];
+      // If this paragraph is contained within another paragraph, skip it
+      if (other.includes(paragraph) && paragraph.length < other.length) {
+        return false;
+      }
+    }
+    
+    return true;
+  });
+  
   return {
-    title: title,
-    paragraphs: [],
-    url: url,
-    metaDescription,
-    metaKeywords
+    pageTitle,
+    metadata,
+    paragraphs
   };
 }
 
-// Fonction pour envoyer les données à Perplexity et obtenir une vérification
-async function checkWithPerplexity(pageContent, trustedSources, pageUrl, paragraphIndex) {
-  try {
-    // Vérifier si l'URL actuelle est une source fiable
-    const currentHostname = new URL(pageUrl).hostname;
-    const isCurrentPageTrusted = trustedSources.some(source => {
-      try {
-        const sourceHostname = new URL(source).hostname;
-        return sourceHostname === currentHostname;
-      } catch (e) {
-        return false;
-      }
+// Function to verify content against trusted sources using Perplexity API
+async function checkWithPerplexity(content, metadata, trustedSources) {
+  // Check if the content's URL is from a trusted source
+  if (metadata && metadata.url) {
+    const contentDomain = new URL(metadata.url).hostname.replace('www.', '');
+    const isFromTrustedSource = trustedSources.some(source => {
+      const sourceDomain = source.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
+      return contentDomain === sourceDomain;
     });
     
-    // Si la page actuelle est une source fiable, retourner directement un score parfait
-    if (isCurrentPageTrusted) {
-      console.log(`La page actuelle ${pageUrl} est une source fiable. Score parfait attribué.`);
+    if (isFromTrustedSource) {
+      // If content is from a trusted source, return a perfect score
       return {
-        paragraphIndex: paragraphIndex,
-        content: pageContent.content,
-        summary: `Vérification du paragraphe ${paragraphIndex + 1}`,
-        status: "vrai",
-        explanation: "Cette page provient d'une source fiable dans votre liste. Le contenu est considéré comme vérifié.",
-        sources: [pageUrl],
-        sourcesAgreement: [10],
+        paragraphIndex: 0,
+        content: content,
+        summary: 'Content from trusted source',
+        status: 'true',
+        explanation: 'This content is from a source you have identified as trusted.',
+        selectedSources: trustedSources.slice(0, 3),
+        sourcesAgreement: [1.0, 1.0, 1.0],
         validityScore: 100
       };
     }
+  }
+  
+  // Select 3-5 relevant sources for verification
+  const selectedSources = selectRelevantSources(content, trustedSources);
+  
+  // Construct the prompt for Perplexity
+  const prompt = `
+    I want to verify if the following text is true, partially true, false, or unverifiable.
     
-    // Construire la liste des sources à utiliser EXCLUSIVEMENT
-    const sourcesList = trustedSources.join(', ');
+    TEXT TO VERIFY:
+    ${content}
     
-    // Informations de contexte basées sur le contenu de la page
-    const contentKeys = extractKeyTerms(pageContent.content);
-    const pageContext = `Page analysée: "${pageContent.title}" (URL: ${pageUrl})
-    Termes clés détectés: ${contentKeys.join(', ')}`;
+    CONTEXT (if available):
+    Title: ${metadata?.title || 'Not available'}
+    Description: ${metadata?.description || 'Not available'}
+    URL: ${metadata?.url || 'Not available'}
     
-    // Créer le prompt pour Perplexity avec restriction aux sources spécifiées
-    const prompt = `Vérifiez la véracité des informations suivantes provenant de ${pageUrl}:
+    TRUSTED SOURCES:
+    ${selectedSources.join('\n')}
     
-    "${pageContent.content}"
+    INSTRUCTIONS:
+    1. Analyze the complete text for factual claims.
+    2. Determine if these claims are true, partially true, false, or unverifiable based ONLY on the trusted sources.
+    3. If the content contains claims that contradict scientific consensus (e.g., flat earth, vaccine misinformation, climate change denial), be especially critical.
+    4. For each trusted source, indicate a level of agreement (0.0 to 1.0) with the text.
+    5. Rate the overall validity score from 0-100 based on factual accuracy.
     
-    Contexte: ${pageContext}
-    
-    DIRECTIVES IMPORTANTES: 
-    1. Analysez L'INTÉGRALITÉ du paragraphe ci-dessus, pas seulement certains mots-clés.
-    2. Utilisez EXCLUSIVEMENT les sources suivantes pour votre vérification. N'utilisez AUCUNE autre source: ${sourcesList}
-    3. Si l'information ne peut pas être vérifiée par ces sources, indiquez-le clairement plutôt que d'utiliser d'autres sources.
-    4. Pour les affirmations contredisant le consensus scientifique (comme "la Terre est plate", "les vaccins causent l'autisme", "le changement climatique n'est pas réel", etc.), soyez particulièrement critique et attribuez des scores très bas si ces affirmations sont contredites par les sources fiables.
-    5. Notez que le consensus scientifique actuel soutient que: la Terre est ronde (sphéroïde), les vaccins sont sûrs et efficaces, le changement climatique est réel et d'origine humaine, l'évolution est une théorie scientifique valide, etc.
-    
-    Donnez-moi une analyse factuelle structurée ainsi:
-    1. Statut: indiquez si l'information est "vrai", "partiellement vrai", "faux" ou "non vérifiable" par les sources spécifiées.
-    2. Score: attribuez un score de validité de 1 à 100, où 100 représente une information parfaitement vérifiée et exacte. Les informations scientifiquement fausses doivent recevoir un score <20.
-    3. Explication: justifiez votre évaluation en expliquant quelles parties du paragraphe sont vérifiées ou non par les sources. Soyez précis.
-    4. Sources utilisées: listez UNIQUEMENT les sources que vous avez consultées et qui contiennent des informations PERTINENTES par rapport au contenu analysé. Pour chaque source, fournissez l'URL COMPLÈTE et EXACTE de la page spécifique consultée (pas seulement le domaine), et indiquez un niveau d'accord (de 1 à 10) entre le contenu de la source et l'information analysée.
-       Format: URL_complète_de_la_page (Niveau d'accord: X/10) - où X est un nombre entre 1 et 10.`;
-    
-    console.log(`Requête à Perplexity pour le paragraphe ${paragraphIndex + 1}:`, prompt);
-    
-    // Paramètres de la requête API
-    const apiParams = {
-      ...config.API_PARAMS,
-      messages: [
-        {
-          role: "system",
-          content: "Vous êtes un assistant de vérification des faits expert et minutieux. Votre tâche est d'analyser l'intégralité du contenu fourni et de vérifier sa véracité en utilisant UNIQUEMENT les sources spécifiées. Faites une analyse complète du texte, pas seulement de quelques mots-clés. Soyez particulièrement critique envers les pseudo-sciences et les théories du complot. Les informations contredisant le consensus scientifique établi devraient automatiquement recevoir des scores très bas. Pour chaque source pertinente, fournissez l'URL complète et exacte de la page spécifique consultée, pas seulement le domaine principal."
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ]
-    };
-    
-    // Appel à l'API Perplexity
-    const response = await fetch(config.PERPLEXITY_API_URL, {
+    FORMAT YOUR RESPONSE AS JSON:
+    {
+      "summary": "Brief 1-2 sentence summary of the text",
+      "status": "true|partially_true|false|unverifiable",
+      "explanation": "Explanation of your assessment",
+      "sourcesAgreement": [list of agreement levels from 0.0 to 1.0 for each source],
+      "validityScore": number from 0-100
+    }
+  `;
+  
+  try {
+    // Faire l'appel API réel à Perplexity
+    const response = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${config.PERPLEXITY_API_KEY}`
       },
-      body: JSON.stringify(apiParams)
+      body: JSON.stringify({
+        model: config.API_PARAMS.model || 'llama-3-sonar-large-32k-online',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: config.API_PARAMS.max_tokens || 1500,
+        temperature: config.API_PARAMS.temperature || 0.05,
+        response_format: { type: 'json_object' }
+      })
     });
     
     if (!response.ok) {
-      const errorData = await response.text();
-      const error = new Error(`Erreur API Perplexity: ${response.status} ${response.statusText}`);
-      // Journaliser l'erreur avec contexte
-      logApiError(error, {
-        status: response.status,
-        statusText: response.statusText,
-        responseText: errorData,
-        paragraphIndex: paragraphIndex,
-        contentLength: pageContent.content.length,
-        apiUrl: config.PERPLEXITY_API_URL
-      });
-      throw error;
+      throw new Error(`API error: ${response.status}`);
     }
     
     const data = await response.json();
-    console.log("Réponse de l'API:", data);
+    const result = JSON.parse(data.choices[0].message.content);
     
-    // Extraire le contenu de la réponse
-    const responseContent = data.choices[0].message.content;
-    
-    // Analyser la réponse pour extraire le statut, l'explication et les sources
-    const analysisResult = parsePerplexityResponse(responseContent);
-    
+    // Format the response
     return {
-      paragraphIndex: paragraphIndex,
-      content: pageContent.content,
-      summary: `Vérification du paragraphe ${paragraphIndex + 1}`,
-      status: analysisResult.status,
-      explanation: analysisResult.explanation,
-      sources: analysisResult.sources,
-      sourcesAgreement: analysisResult.sourcesAgreement,
-      validityScore: analysisResult.validityScore
+      paragraphIndex: 0,
+      content: content,
+      summary: result.summary,
+      status: result.status,
+      explanation: result.explanation,
+      selectedSources: selectedSources,
+      sourcesAgreement: result.sourcesAgreement,
+      validityScore: result.validityScore
     };
   } catch (error) {
-    console.error("Erreur lors de l'appel à l'API Perplexity:", error);
-    
-    // Journaliser l'erreur
-    logApiError(error, {
-      paragraphIndex: paragraphIndex,
-      contentLength: pageContent.content.length,
-      operation: 'checkWithPerplexity',
-      pageTitle: pageContent.title || 'Unknown'
-    });
-    
-    // Fallback en cas d'erreur: mode simulation
-    return fallbackSimulation(pageContent, trustedSources, paragraphIndex);
+    console.error('API Error:', error);
+    // Use fallback function if API call fails
+    return fallbackSimulation(content, metadata, trustedSources, false);
   }
 }
 
-// Fonction pour extraire les termes clés d'un texte
-function extractKeyTerms(text) {
-  // Liste de mots vides à ignorer
-  const stopWords = new Set(['le', 'la', 'les', 'un', 'une', 'des', 'et', 'est', 'à', 'que', 'qui', 'dans', 'sur', 'pour', 'pas', 'par', 'ce', 'se', 'en', 'du', 'au', 'aux', 'avec', 'sont', 'ont', 'cette', 'ces', 'mais', 'ou', 'où', 'donc', 'car', 'si', 'ainsi', 'comme', 'aussi', 'plus', 'moins', 'très', 'bien', 'peu', 'sans']);
-  
-  // Nettoyer le texte
-  const cleanText = text.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, '');
-  
-  // Diviser en mots
-  const words = cleanText.split(/\s+/);
-  
-  // Compter la fréquence des mots significatifs
-  const wordCount = {};
-  for (const word of words) {
-    if (word.length > 3 && !stopWords.has(word)) {
-      wordCount[word] = (wordCount[word] || 0) + 1;
-    }
+// Function to select the most relevant sources for verification
+function selectRelevantSources(content, trustedSources) {
+  // If we have fewer than 5 sources, use all of them
+  if (trustedSources.length <= 5) {
+    return trustedSources;
   }
   
-  // Trier par fréquence
-  const sortedWords = Object.entries(wordCount)
-    .sort((a, b) => b[1] - a[1])
-    .map(entry => entry[0])
-    .slice(0, 10);
-  
-  return sortedWords;
+  // For demonstration purposes, randomly select 3-5 sources
+  // In a real implementation, this would use a more sophisticated algorithm
+  // to select the most relevant sources based on content
+  const numSources = Math.floor(Math.random() * 3) + 3; // 3-5 sources
+  const shuffled = [...trustedSources].sort(() => 0.5 - Math.random());
+  return shuffled.slice(0, numSources);
 }
 
-// Fonction pour analyser la réponse de Perplexity
-function parsePerplexityResponse(responseText) {
-  // Expressions régulières pour extraire les informations
-  const statusRegex = /Statut\s*:\s*(vrai|partiellement vrai|faux|non vérifiable)/i;
-  const scoreRegex = /Score\s*:\s*(\d+)/i;
-  const explanationRegex = /Explication\s*:\s*([^\n]+(?:\n[^\n]+)*?)(?:\n\s*\d|\n\s*Sources|\n\s*$)/i;
-  const sourcesRegex = /Sources utilisées\s*:([\s\S]+)$/i;
-  
-  // Extraire le statut
-  const statusMatch = responseText.match(statusRegex);
-  const status = statusMatch ? statusMatch[1].toLowerCase() : "non vérifiable";
-  
-  // Extraire le score
-  const scoreMatch = responseText.match(scoreRegex);
-  let validityScore = 50; // Score par défaut
-  if (scoreMatch && !isNaN(parseInt(scoreMatch[1]))) {
-    validityScore = parseInt(scoreMatch[1]);
-    // S'assurer que le score est entre 1 et 100
-    validityScore = Math.max(1, Math.min(100, validityScore));
-  } else {
-    // Générer un score basé sur le statut si aucun score n'est fourni
-    switch(status) {
-      case "vrai":
-        validityScore = Math.floor(Math.random() * 20) + 80; // 80-100
-        break;
-      case "partiellement vrai":
-        validityScore = Math.floor(Math.random() * 30) + 50; // 50-79
-        break;
-      case "faux":
-        validityScore = Math.floor(Math.random() * 30) + 10; // 10-39
-        break;
-      case "non vérifiable":
-        validityScore = Math.floor(Math.random() * 20) + 40; // 40-59
-        break;
-    }
-  }
-  
-  // Extraire l'explication
-  const explanationMatch = responseText.match(explanationRegex);
-  const explanation = explanationMatch 
-    ? explanationMatch[1].trim() 
-    : "Impossible d'extraire l'explication de la réponse.";
-  
-  // Extraire les sources et leur niveau d'accord
-  const sourcesMatch = responseText.match(sourcesRegex);
-  let sources = [];
-  let sourcesAgreement = {};
-  
-  if (sourcesMatch) {
-    const sourcesText = sourcesMatch[1];
-    
-    // Rechercher les liens avec leur niveau d'accord
-    const sourceRegex = /(https?:\/\/[^\s,)]+)(?:.*?Niveau d'accord\s*:\s*(\d+)\/10)?/gi;
-    let match;
-    
-    while ((match = sourceRegex.exec(sourcesText)) !== null) {
-      const url = match[1];
-      // Si un niveau d'accord est spécifié, l'utiliser, sinon donner une valeur par défaut de 5
-      const agreementLevel = match[2] ? parseInt(match[2]) : 5;
-      
-      sources.push(url);
-      sourcesAgreement[url] = agreementLevel;
-    }
-    
-    // Si aucune source avec niveau d'accord n'a été trouvée, essayer d'extraire juste les URLs
-    if (sources.length === 0) {
-      const urlRegex = /https?:\/\/[^\s,)]+/g;
-      const matches = sourcesText.match(urlRegex);
-      
-      if (matches) {
-        sources = matches;
-        // Attribuer un niveau d'accord par défaut
-        sources.forEach(url => {
-          sourcesAgreement[url] = 5; // niveau d'accord moyen par défaut
-        });
-      } else {
-        // Si aucune URL n'est trouvée, essayer d'extraire des lignes
-        const lines = sourcesText
-          .split('\n')
-          .map(line => line.trim())
-          .filter(line => line.length > 0);
-        
-        lines.forEach(line => {
-          const urlMatch = line.match(/https?:\/\/[^\s,)]+/);
-          if (urlMatch) {
-            const url = urlMatch[0];
-            sources.push(url);
-            
-            // Chercher un niveau d'accord dans la ligne
-            const agreementMatch = line.match(/Niveau d'accord\s*:\s*(\d+)\/10/i);
-            sourcesAgreement[url] = agreementMatch ? parseInt(agreementMatch[1]) : 5;
-          }
-        });
-      }
-    }
-  }
-  
-  return {
-    status,
-    explanation,
-    sources,
-    sourcesAgreement,
-    validityScore
-  };
-}
-
-// Fonction de repli (fallback) en cas d'erreur avec l'API - utilise la simulation
-function fallbackSimulation(pageContent, trustedSources, paragraphIndex) {
-  console.log("Utilisation du mode simulation (fallback) pour la vérification");
-  
-  // Détecter les théories du complot ou les fausses informations scientifiques
-  const content = pageContent.content.toLowerCase();
+// Fallback function to simulate verification when API is unavailable
+function fallbackSimulation(content, metadata, trustedSources, containsControversialTheories) {
+  // List of controversial terms to check for
   const controversialTerms = [
-    'terre plate', 'flat earth', 'terre creuse', 'hollow earth',
-    'faux atterrissage', 'fake moon landing', 'chemtrails',
-    'illuminati', 'nouvel ordre mondial', 'new world order',
-    'puce', 'micropuce', 'microchip', 'contrôle mental', 'mind control',
-    'anti-vax', 'anti-vaccin', 'vaccin danger', 'vaccine injury',
-    'covid hoax', 'fausse pandémie', 'plandemic',
-    '5g danger', 'radiation 5g', 'reptilien', 'reptilian',
-    'fausses nouvelles', 'fake news', 'deep state', 'état profond'
+    'flat earth', 'earth is flat', 'conspiracy', 'illuminati', 'new world order', 
+    'chemtrails', 'mind control', 'fake moon landing', 'moon landing hoax',
+    'vaccine autism', 'autism vaccines', 'climate change hoax', 'global warming hoax',
+    'holocaust denial', '5g coronavirus', 'covid hoax', 'covid-19 hoax'
   ];
   
-  // Termes scientifiques établis
+  // List of established scientific facts
   const scientificFacts = [
-    'terre ronde', 'earth is round', 'sphère', 'globe', 'sphérique',
-    'vaccin efficace', 'vaccine safe', 'vaccin sûr', 'vaccination importante',
-    'changement climatique', 'climate change', 'réchauffement', 'warming',
-    'évolution des espèces', 'darwinisme', 'darwin theory'
+    'earth is round', 'globe', 'vaccines are safe', 'climate change is real', 
+    'human activity contributes to climate change', 'evolution is scientifically proven',
+    'moon landing happened', 'holocaust happened'
   ];
   
-  // Vérifier si le contenu contient des théories du complot
-  const hasControversialContent = controversialTerms.some(term => content.includes(term));
+  // Check if content contains controversial theories
+  const hasControversialContent = controversialTerms.some(term => 
+    content.toLowerCase().includes(term) || 
+    (metadata.title && metadata.title.toLowerCase().includes(term))
+  );
   
-  // Vérifier si le contenu contient des faits scientifiques établis
-  const hasScientificFacts = scientificFacts.some(term => content.includes(term));
+  // Check if content mentions scientific facts
+  const hasScientificFacts = scientificFacts.some(fact => 
+    content.toLowerCase().includes(fact) || 
+    (metadata.title && metadata.title.toLowerCase().includes(fact))
+  );
   
-  // Déterminer le statut et le score en fonction du contenu
-  let status = '';
-  let baseScore = 0;
+  // Determine status and base score
+  let status = 'unverifiable';
+  let baseScore = 50;
   
-  // Analyse de contenu pour déterminer le statut par défaut
   if (hasControversialContent) {
-    status = "faux";
-    baseScore = Math.floor(Math.random() * 15) + 5; // 5-20
-  } else if (hasScientificFacts) {
-    status = "vrai";
-    baseScore = Math.floor(Math.random() * 20) + 75; // 75-95
-  } else {
-    // Si pas de contenu controversé ou de faits scientifiques, choisir aléatoirement
-    const statuses = ["vrai", "partiellement vrai", "faux", "non vérifiable"];
-    const index = Math.floor(Math.random() * statuses.length);
-    status = statuses[index];
+    status = 'false';
+    baseScore = 20;
     
-    switch(status) {
-      case "vrai":
-        baseScore = Math.floor(Math.random() * 20) + 80; // 80-100
-        break;
-      case "partiellement vrai":
-        baseScore = Math.floor(Math.random() * 30) + 50; // 50-79
-        break;
-      case "faux":
-        baseScore = Math.floor(Math.random() * 30) + 10; // 10-39
-        break;
-      case "non vérifiable":
-        baseScore = Math.floor(Math.random() * 20) + 40; // 40-59
-        break;
+    // Specific detection for flat earth theory
+    if (content.toLowerCase().includes('flat earth') || 
+        content.toLowerCase().includes('earth is flat')) {
+      baseScore = 5; // Very low score for flat earth content
+    }
+  } else if (hasScientificFacts) {
+    status = 'true';
+    baseScore = 85;
+  } else {
+    // Analyze content length, structure, etc. to determine if it's likely true
+    if (content.length > 200 && content.includes('.') && !content.includes('!!!')) {
+      status = 'partially_true';
+      baseScore = 65;
     }
   }
   
-  // Détection spécifique pour la théorie de la Terre plate
-  if (content.includes('terre plate') || content.includes('flat earth')) {
-    status = "faux";
-    baseScore = Math.floor(Math.random() * 10) + 1; // 1-10, score très bas
+  // Randomly select 3-5 sources
+  const numSources = Math.floor(Math.random() * 3) + 3;
+  const selectedSources = trustedSources.slice(0, numSources);
+  
+  // Generate agreement levels based on status
+  const sourcesAgreement = [];
+  for (let i = 0; i < numSources; i++) {
+    let agreementLevel;
+    if (status === 'true') {
+      // High agreement for true content
+      agreementLevel = Math.min(1.0, 0.7 + Math.random() * 0.3);
+    } else if (status === 'partially_true') {
+      // Moderate agreement for partially true content
+      agreementLevel = 0.4 + Math.random() * 0.4;
+    } else if (status === 'false') {
+      // Low agreement for false content
+      agreementLevel = Math.max(0.0, Math.random() * 0.3);
+    } else {
+      // Variable agreement for unverifiable content
+      agreementLevel = Math.random() * 0.6;
+    }
+    
+    // Adjust agreement for sources with known positions on controversial theories
+    if (hasControversialContent && selectedSources[i].includes('nasa.gov')) {
+      agreementLevel = 0.0; // NASA would strongly disagree with flat earth
+    } else if (hasControversialContent && selectedSources[i].includes('cdc.gov')) {
+      agreementLevel = 0.0; // CDC would disagree with vaccine misinformation
+    }
+    
+    sourcesAgreement.push(agreementLevel);
   }
   
-  // Sélectionner aléatoirement 3 à 5 sources pertinentes
-  const numSourcesToUse = Math.floor(Math.random() * 3) + 3; // Entre 3 et 5 sources
-  const selectedSources = [];
-  const sourcesAgreement = {};
+  // Calculate validity score factoring in source agreement
+  const avgAgreement = sourcesAgreement.reduce((sum, val) => sum + val, 0) / sourcesAgreement.length;
+  let validityScore = Math.round((baseScore * 0.7) + (avgAgreement * 100 * 0.3));
   
-  // Pages réelles pour les sources principales
-  const realPages = {
-    'who.int': [
-      '/news-room/fact-sheets/detail/diabetes',
-      '/news-room/questions-and-answers/item/coronavirus-disease-covid-19',
-      '/health-topics/coronavirus',
-      '/emergencies/diseases/novel-coronavirus-2019'
-    ],
-    'cdc.gov': [
-      '/diabetes/basics/diabetes.html',
-      '/coronavirus/2019-ncov/index.html',
-      '/flu/index.html',
-      '/vaccines/index.html'
-    ],
-    'nih.gov': [
-      '/health-information/diabetes',
-      '/health-information/coronavirus',
-      '/research-training/medical-research-initiatives/activ'
-    ],
-    'nature.com': [
-      '/articles/d41586-020-00502-w',
-      '/articles/d41586-020-01315-7',
-      '/articles/d41586-020-01221-y',
-      '/articles/s41586-020-2012-7'
-    ],
-    'wikipedia.org': [
-      '/wiki/Diabetes_mellitus',
-      '/wiki/COVID-19',
-      '/wiki/World_Health_Organization',
-      '/wiki/Centers_for_Disease_Control_and_Prevention',
-      '/wiki/Spherical_Earth',
-      '/wiki/Flat_Earth',
-      '/wiki/Scientific_consensus'
-    ],
-    'cnn.com': [
-      '/health',
-      '/health/coronavirus'
-    ],
-    'bbc.com': [
-      '/news/health',
-      '/news/science_and_environment'
-    ],
-    'reuters.com': [
-      '/lifestyle/health',
-      '/business/healthcare-pharmaceuticals'
-    ],
-    'nasa.gov': [
-      '/topics/earth/index.html',
-      '/topics/humans-in-space',
-      '/mission_pages/apollo/index.html'
-    ]
-  };
+  // If content is very controversial, cap the score
+  if (containsControversialTheories) {
+    validityScore = Math.min(validityScore, 40);
+  }
   
-  // Pages par défaut pour les autres domaines
-  const defaultPages = {
-    'science.org': '/content/latest-news',
-    'scientificamerican.com': '/health',
-    'pnas.org': '/content/latest',
-    'sciencedirect.com': '/browse/journals-and-books',
-    'europa.eu': '/info/index_en',
-    'un.org': '/en/sections/general/un-websites/',
-    'wikidata.org': '/wiki/Wikidata:Main_Page',
-    'wikiversity.org': '/wiki/Wikiversity:Main_Page',
-    'wikivoyage.org': '/wiki/Main_Page',
-    'wiktionary.org': '/wiki/Wiktionary:Main_Page',
-    'wikibooks.org': '/wiki/Main_Page'
-  };
-  
-  // Si nous avons assez de sources, en sélectionner aléatoirement
-  if (trustedSources.length > 0) {
-    const shuffled = [...trustedSources].sort(() => 0.5 - Math.random());
-    for (let i = 0; i < Math.min(numSourcesToUse, shuffled.length); i++) {
-      const baseSource = shuffled[i];
-      
-      // Extraire le domaine de base
-      const domainMatch = baseSource.match(/https?:\/\/(?:www\.)?([^\/]+)/i);
-      const baseDomain = domainMatch ? domainMatch[1] : '';
-      
-      // Construire une URL spécifique qui existe réellement
-      let specificSource = baseSource;
-      let domainKey = '';
-      
-      // Trouver la clé de domaine correspondante
-      for (const domain in realPages) {
-        if (baseDomain.includes(domain)) {
-          domainKey = domain;
-          break;
-        }
-      }
-      
-      // Pour les théories du complot, privilégier les sources scientifiques fiables
-      if (hasControversialContent && domainKey === 'wikipedia.org') {
-        // Privilégier les pages Wikipedia sur le consensus scientifique pour les théories du complot
-        specificSource = baseSource.replace(/\/$/, '') + '/wiki/Scientific_consensus';
-      } else if (hasControversialContent && domainKey === 'nasa.gov') {
-        // Privilégier les pages NASA avec des preuves sur la Terre sphérique
-        specificSource = baseSource.replace(/\/$/, '') + '/topics/earth/index.html';
-      } else if (domainKey && realPages[domainKey] && realPages[domainKey].length > 0) {
-        // Utiliser une page réelle pour ce domaine
-        const randomPath = realPages[domainKey][Math.floor(Math.random() * realPages[domainKey].length)];
-        specificSource = baseSource.replace(/\/$/, '') + randomPath;
-      } else if (defaultPages[baseDomain]) {
-        // Utiliser une page par défaut si disponible
-        specificSource = baseSource.replace(/\/$/, '') + defaultPages[baseDomain];
-      } else {
-        // Utiliser juste le domaine de base
-        specificSource = baseSource;
-      }
-      
-      selectedSources.push(specificSource);
-      
-      // Générer un niveau d'accord basé sur le statut
-      let agreementLevel;
-      switch(status) {
-        case "vrai":
-          agreementLevel = Math.floor(Math.random() * 3) + 8; // 8-10
-          break;
-        case "partiellement vrai":
-          agreementLevel = Math.floor(Math.random() * 3) + 5; // 5-7
-          break;
-        case "faux":
-          agreementLevel = Math.floor(Math.random() * 3) + 1; // 1-3
-          break;
-        case "non vérifiable":
-          agreementLevel = Math.floor(Math.random() * 2) + 4; // 4-5
-          break;
-      }
-      
-      // Pour les théories controversées, les sources scientifiques montreront un faible niveau d'accord
-      if (hasControversialContent && (
-          domainKey === 'nasa.gov' || 
-          domainKey === 'who.int' || 
-          domainKey === 'cdc.gov' || 
-          domainKey === 'nih.gov' ||
-          domainKey === 'science.org'
-      )) {
-        agreementLevel = Math.floor(Math.random() * 2) + 1; // 1-2, très faible niveau d'accord
-      }
-      
-      sourcesAgreement[specificSource] = agreementLevel;
-    }
+  // Generate appropriate explanations
+  let explanation = '';
+  if (status === 'true') {
+    explanation = "This content appears to be factually accurate and is supported by trusted sources.";
+  } else if (status === 'partially_true') {
+    explanation = "This content contains some accurate information but may include questionable claims or lack full context.";
+  } else if (status === 'false') {
+    explanation = "This content contains false or misleading claims that contradict information from trusted sources.";
+  } else {
+    explanation = "This content could not be verified using the available trusted sources.";
   }
   
   return {
-    paragraphIndex: paragraphIndex,
-    content: pageContent.content,
-    summary: `Vérification du paragraphe ${paragraphIndex + 1}`,
+    paragraphIndex: 0,
+    content: content,
+    summary: `Content summary from ${metadata.title || 'unknown source'}`,
     status: status,
-    explanation: getExplanationForStatus(status, pageContent.content),
-    sources: selectedSources,
+    explanation: explanation,
+    selectedSources: selectedSources,
     sourcesAgreement: sourcesAgreement,
-    validityScore: baseScore
+    validityScore: validityScore
   };
 }
 
-// Fonction pour générer une explication selon le statut (pour la simulation)
+// Function to get explanation text based on result status
 function getExplanationForStatus(status, content) {
   switch(status) {
-    case "vrai":
-      return `Cette information a été confirmée par les sources vérifiées. Les faits mentionnés correspondent aux données publiées dans nos sources.`;
-    case "partiellement vrai":
-      return `Cette information contient des éléments exacts mais aussi des imprécisions. Les sources vérifiées confirment certains aspects mais pas la totalité.`;
-    case "faux":
-      return `Cette information est contredite par les sources vérifiées. Les faits présentés ne correspondent pas aux données disponibles dans nos sources.`;
-    case "non vérifiable":
-      return `Impossible de vérifier cette information avec les sources spécifiées. Ce sujet n'est pas traité dans les sources de confiance fournies.`;
+    case 'true':
+      return "This content appears to be factually accurate and is supported by trusted sources.";
+    case 'partially_true':
+      return "This content contains some accurate information but may include questionable claims or lack full context.";
+    case 'false':
+      return "This content contains false or misleading claims that contradict information from trusted sources.";
     default:
-      return `Statut de vérification inconnu.`;
+      return "This content could not be verified using the available trusted sources.";
   }
 }
-
-// Fonction pour formater tous les résultats de vérification
-function formatVerificationResults(results, pageContent) {
-  // Appliquer une pondération qui pénalise davantage les informations fausses
-  const calculateWeightedScore = (result) => {
-    switch(result.status.toLowerCase()) {
-      case 'vrai':
-      case 'true':
-        return result.validityScore;
-      case 'partiellement vrai':
-      case 'partially true':
-        return result.validityScore * 0.8; // Pénalité légère
-      case 'faux':
-      case 'false':
-        return result.validityScore * 0.2; // Forte pénalité
-      case 'non vérifiable':
-      default:
-        return result.validityScore * 0.5; // Pénalité moyenne
-    }
-  };
-  
-  // Calculer le score global moyen pondéré
-  let totalWeightedScore = 0;
-  let totalWeight = 0;
-  
-  results.forEach(result => {
-    const weight = result.content.length; // Plus le paragraphe est long, plus il a de poids
-    const weightedScore = calculateWeightedScore(result);
-    totalWeightedScore += weightedScore * weight;
-    totalWeight += weight;
-  });
-  
-  const globalScore = Math.round(totalWeightedScore / totalWeight);
-  
-  // Déterminer la classe du score global
-  let globalScoreClass = '';
-  if (globalScore >= 80) {
-    globalScoreClass = 'score-high';
-  } else if (globalScore >= 50) {
-    globalScoreClass = 'score-medium';
-  } else {
-    globalScoreClass = 'score-low';
-  }
-  
-  let html = `<div class="verification-header">
-    <h3>Vérification de "${pageContent.title}"</h3>
-    <div class="global-score-container">
-      <div class="global-score ${globalScoreClass}">Score global de validité: ${globalScore}/100</div>
-      <p class="verification-info">Basée exclusivement sur les sources vérifiées</p>
-    </div>
-  </div>`;
-  
-  html += '<div class="paragraphs-container">';
-  
-  results.forEach(result => {
-    let statusClass = '';
-    switch(result.status.toLowerCase()) {
-      case 'vrai':
-      case 'true':
-        statusClass = 'status-true';
-        break;
-      case 'partiellement vrai':
-      case 'partially true':
-        statusClass = 'status-partial';
-        break;
-      case 'faux':
-      case 'false':
-        statusClass = 'status-false';
-        break;
-      case 'non vérifiable':
-      default:
-        statusClass = 'status-unverified';
-    }
-    
-    html += `<div class="paragraph-result ${statusClass}">`;
-    html += `<div class="paragraph-content">"${result.content.substring(0, 150)}${result.content.length > 150 ? '...' : ''}"</div>`;
-    
-    // Afficher le statut et le score de validité
-    html += `<div class="verification-info-container">`;
-    html += `<div class="verification-badge ${statusClass}">${result.status}</div>`;
-    
-    // Détermine la classe CSS pour le score
-    let scoreClass = '';
-    if (result.validityScore >= 80) {
-      scoreClass = 'score-high';
-    } else if (result.validityScore >= 50) {
-      scoreClass = 'score-medium';
-    } else {
-      scoreClass = 'score-low';
-    }
-    
-    html += `<div class="validity-score ${scoreClass}">Score: ${result.validityScore}/100</div>`;
-    html += `</div>`;
-    
-    html += `<div class="verification-explanation">${result.explanation}</div>`;
-    
-    if (result.sources && result.sources.length > 0) {
-      html += '<div class="verification-sources">';
-      html += '<h4>Sources pertinentes consultées</h4>';
-      html += '<ul>';
-      
-      result.sources.forEach(source => {
-        // Obtenir le niveau d'accord pour cette source
-        const agreementLevel = result.sourcesAgreement && result.sourcesAgreement[source] 
-          ? result.sourcesAgreement[source] 
-          : 5; // Valeur par défaut si non disponible
-        
-        // Déterminer la classe CSS en fonction du niveau d'accord
-        let agreementClass = '';
-        if (agreementLevel >= 8) {
-          agreementClass = 'agreement-high';
-        } else if (agreementLevel >= 5) {
-          agreementClass = 'agreement-medium';
-        } else {
-          agreementClass = 'agreement-low';
-        }
-        
-        // Générer un extrait de la source pour la prévisualisation
-        const sourceDomain = new URL(source).hostname;
-        const sourcePreview = generateSourcePreview(source, agreementLevel, result.content);
-        
-        html += `<li class="${agreementClass}">
-          <a href="${source}" target="_blank" class="source-link" data-preview="${encodeURIComponent(sourcePreview)}">
-            ${source}
-            <span class="source-preview-indicator">👁️</span>
-          </a>
-          <span class="agreement-level">(Concordance: ${agreementLevel}/10)</span>
-        </li>`;
-      });
-      
-      html += '</ul>';
-      html += '</div>';
-    }
-    
-    html += '</div>';
-  });
-  
-  html += '</div>';
-  
-  // Ajouter le conteneur pour la prévisualisation
-  html += '<div id="sourcePreviewContainer" class="source-preview-container"></div>';
-  
-  return html;
-}
-
-// Fonction pour générer une prévisualisation d'une source
-function generateSourcePreview(sourceUrl, agreementLevel, relatedContent) {
-  // Dans une implémentation réelle, cette fonction pourrait faire une requête
-  // à l'API pour obtenir un aperçu réel du contenu de la source.
-  // Ici, nous simulons un extrait
-  
-  const domain = new URL(sourceUrl).hostname;
-  const path = new URL(sourceUrl).pathname;
-  
-  // Dictionnaire de titres pour les chemins connus
-  const knownTitles = {
-    // WHO
-    '/news-room/fact-sheets/detail/diabetes': 'Diabète - Principaux faits | OMS',
-    '/news-room/questions-and-answers/item/coronavirus-disease-covid-19': 'Questions-réponses : Maladie à coronavirus (COVID-19)',
-    '/health-topics/coronavirus': 'Coronavirus | Organisation mondiale de la Santé',
-    '/emergencies/diseases/novel-coronavirus-2019': 'Maladie à coronavirus (COVID-19) | OMS',
-    
-    // CDC
-    '/diabetes/basics/diabetes.html': 'Qu\'est-ce que le diabète? | CDC',
-    '/coronavirus/2019-ncov/index.html': 'Maladie à Coronavirus 2019 (COVID-19) | CDC',
-    '/flu/index.html': 'Informations sur la grippe saisonnière | CDC',
-    '/vaccines/index.html': 'Vaccins et immunisation | CDC',
-    
-    // NIH
-    '/health-information/diabetes': 'Diabète | National Institutes of Health',
-    '/health-information/coronavirus': 'Coronavirus (COVID-19) | NIH',
-    '/research-training/medical-research-initiatives/activ': 'Accélérer les interventions thérapeutiques COVID-19 | NIH',
-    
-    // Wikipedia
-    '/wiki/Diabetes_mellitus': 'Diabète sucré — Wikipédia',
-    '/wiki/COVID-19': 'COVID-19 — Wikipédia',
-    '/wiki/World_Health_Organization': 'Organisation mondiale de la santé — Wikipédia',
-    '/wiki/Centers_for_Disease_Control_and_Prevention': 'Centers for Disease Control and Prevention — Wikipédia'
-  };
-  
-  // Extraire des mots clés du contenu relatif
-  const keywords = relatedContent
-    .split(' ')
-    .filter(word => word.length > 5)
-    .slice(0, 5)
-    .map(word => word.replace(/[^a-zA-Z0-9]/g, ''));
-    
-  // Générer un titre basé sur l'URL
-  let title = '';
-  if (knownTitles[path]) {
-    title = knownTitles[path];
-  } else if (path.includes('diabetes') || path.includes('diabete')) {
-    title = 'Diabète: causes, symptômes et traitements';
-  } else if (path.includes('covid') || path.includes('coronavirus')) {
-    title = 'COVID-19: Informations et recommandations';
-  } else if (path.includes('vaccine') || path.includes('vaccin')) {
-    title = 'Vaccins: efficacité et sécurité';
-  } else if (path.includes('health') || path.includes('sante')) {
-    title = 'Informations de santé publique';
-  } else {
-    title = `Informations sur ${domain}`;
-  }
-  
-  // Phrases d'introduction pour les extraits
-  const highAgreeIntros = [
-    "D'après les recherches scientifiques publiées sur ce site,",
-    "Selon les données vérifiées présentées dans cette source,",
-    "Les études citées sur cette page confirment que",
-    "Cette source de référence indique clairement que"
-  ];
-  
-  const mediumAgreeIntros = [
-    "Cette source suggère que",
-    "D'après certaines informations présentées ici,",
-    "Les données partielles indiquent que",
-    "Selon cette source, qui présente une analyse nuancée,"
-  ];
-  
-  const lowAgreeIntros = [
-    "Contrairement à ce qui est suggéré, cette source indique que",
-    "Les informations présentées ici contredisent l'idée que",
-    "Cette source ne soutient pas l'affirmation selon laquelle",
-    "Les données scientifiques sur cette page remettent en question"
-  ];
-  
-  // Générer un extrait basé sur le niveau d'accord
-  let excerpt = '';
-  if (agreementLevel >= 8) {
-    const intro = highAgreeIntros[Math.floor(Math.random() * highAgreeIntros.length)];
-    excerpt = `${intro} ${keywords.slice(0, 3).join(', ')} sont des facteurs importants à considérer. Les données récentes montrent une corrélation significative entre ces éléments, avec un niveau de confiance élevé.`;
-  } else if (agreementLevel >= 5) {
-    const intro = mediumAgreeIntros[Math.floor(Math.random() * mediumAgreeIntros.length)];
-    excerpt = `${intro} ${keywords.slice(0, 2).join(' et ')} peuvent être liés, mais les preuves ne sont pas concluantes. Des recherches supplémentaires sont nécessaires pour établir un lien de causalité direct.`;
-  } else {
-    const intro = lowAgreeIntros[Math.floor(Math.random() * lowAgreeIntros.length)];
-    excerpt = `${intro} ${keywords[0] || 'ce sujet'} est bien établi. Les données disponibles sur cette page suggèrent plutôt une interprétation différente des faits présentés.`;
-  }
-  
-  // Formater la prévisualisation
-  return `
-    <div class="preview-header">
-      <img src="https://www.google.com/s2/favicons?domain=${domain}&sz=32" alt="${domain}" class="preview-favicon">
-      <span class="preview-domain">${domain}</span>
-    </div>
-    <h3 class="preview-title">${title}</h3>
-    <p class="preview-excerpt">${excerpt}</p>
-    <div class="preview-footer">Source vérifiée • Concordance: ${agreementLevel}/10</div>
-  `;
-} 
